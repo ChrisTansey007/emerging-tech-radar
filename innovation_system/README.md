@@ -43,12 +43,50 @@ engineers features, trains predictive models, and generates forecasts.
 
 ## Running the System
 
-To run the main conceptual demonstration script:
+The main conceptual demonstration script is `main/run.py`. It can be run with default settings or customized using command-line arguments.
 
-\`\`\`bash
-python main/run.py
-\`\`\`
+**Note:** The `main/run.py` script currently uses placeholder data (mock data generation) for demonstration purposes.
+Full functionality (live data collection, actual model training on real data) would require uncommenting and completing the data collection phase,
+valid API keys, and potentially more extensive historical data for model training.
 
-**Note:** The \`main/run.py\` script currently uses placeholder data and mock API calls for demonstration purposes.
-Full functionality requires valid API keys and potentially more extensive historical data for model training.
-The script also has temporary includes of classes and configurations which will be replaced by proper imports once the refactoring is complete.
+### Command-Line Interface (CLI)
+
+The `main/run.py` script supports command-line arguments to customize the analysis parameters:
+
+**Arguments:**
+
+*   `--sectors "SECTOR1,SECTOR2"`
+    *   **Description:** Specifies a comma-separated list of technology sectors for the analysis.
+    *   **Default:** `"AI,Biotech"`
+*   `--start-date YYYY-MM-DD`
+    *   **Description:** Sets the start date for data collection (and mock data generation period).
+    *   **Default:** 90 days prior to the current date.
+*   `--end-date YYYY-MM-DD`
+    *   **Description:** Sets the end date for data collection (and mock data generation period).
+    *   **Default:** The current date.
+*   `--horizons "H1,H2,H3"`
+    *   **Description:** Defines a comma-separated list of prediction horizons in months (e.g., for forecasts).
+    *   **Default:** `"6,12,24"`
+
+**Usage Examples:**
+
+1.  **Run with default settings:**
+    ```bash
+    python innovation_system/main/run.py
+    ```
+    *(This will use the default sectors, date range, and horizons for the mock data simulation.)*
+
+2.  **Analyze specific sectors for a defined period and horizons:**
+    ```bash
+    python innovation_system/main/run.py --sectors "Quantum Computing,Renewable Energy" --start-date 2023-01-01 --end-date 2023-12-31 --horizons "6,18"
+    ```
+
+3.  **Analyze default sectors but with custom prediction horizons:**
+    ```bash
+    python innovation_system/main/run.py --horizons "3,9,15"
+    ```
+
+4.  **Analyze a single sector:**
+    ```bash
+    python innovation_system/main/run.py --sectors "AI"
+    ```
