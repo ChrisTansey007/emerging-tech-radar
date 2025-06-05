@@ -10,9 +10,7 @@ This repository is dedicated to tracking and evaluating emerging technologies. T
 
 ## Getting Started / Local Setup
 
-The core project is located in the `innovation_system` directory. For detailed setup and execution instructions, please refer to the `innovation_system/README.md` file.
-
-This project uses Python. It is recommended to use a virtual environment. All necessary dependencies are listed in the `innovation_system/requirements.txt` file.
+The `innovation_system/` directory contains the comprehensive **Innovation Prediction System**. For detailed instructions on how to set up your environment, configure API keys, and run this system, please refer to the [dedicated README within the innovation_system directory](innovation_system/README.md). The project uses Python, and setting up a virtual environment and installing dependencies from `innovation_system/requirements.txt` is recommended before proceeding.
 
 ## Introduction
 
