@@ -1,159 +1,176 @@
+# Cleared for new implementation
+# This file will house the InnovationPredictor class for model training and validation.
+
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.model_selection import TimeSeriesSplit, GridSearchCV
 from sklearn.metrics import mean_absolute_error, mean_squared_error
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
-# joblib was imported but not used directly in InnovationPredictor snippet.
-# It's often used for saving/loading models, which can be added later if needed.
-# import joblib
+import joblib # Note: joblib was imported in model training but not directly used in snippet; keeping for model saving/loading.
+from sklearn.preprocessing import StandardScaler # Added for _normalize_and_impute_for_training
+
+# --- Model Training Process ---
 
 class InnovationPredictor:
     def __init__(self, random_state=42):
         self.models_blueprints = {
-            'random_forest': RandomForestRegressor(n_estimators=100, max_depth=10, random_state=random_state),
-            'gradient_boosting': GradientBoostingRegressor(n_estimators=100, learning_rate=0.1, max_depth=6, random_state=random_state)
+            'random_forest': RandomForestRegressor(random_state=random_state),
+            'gradient_boosting': GradientBoostingRegressor(random_state=random_state)
         }
-        self.ensemble_weights = {'random_forest': 0.6, 'gradient_boosting': 0.4}
-        self.sector_models = {}
-        self.feature_importances = {}
-        self.scaler = StandardScaler() # For _normalize_features
+        self.ensemble_weights = {'random_forest': 0.6, 'gradient_boosting': 0.4} # For prediction
+        self.trained_sector_models = {} # {sector: {model_name: trained_model_object}}
+        self.trained_scalers = {} # {sector: {feature_name: {'scaler': scaler_object, 'median': median_val}}}
+        self.trained_feature_names = {} # {sector: [feature_list_order]}
 
-    def _temporal_alignment(self, patent_features, funding_features, research_features, targets_df):
-        # This method's logic was mostly placeholder. True alignment is complex and data-dependent.
-        # For now, it simulates a simple concat.
-        df_list = []
-        if not patent_features.empty: df_list.append(patent_features.add_suffix('_patent'))
-        if not funding_features.empty: df_list.append(funding_features.add_suffix('_funding'))
-        if not research_features.empty: df_list.append(research_features.add_suffix('_research'))
-        if not df_list: return pd.DataFrame()
-        aligned_data = pd.concat(df_list, axis=1)
-        return aligned_data
-
-    def _create_lagged_features(self, df, feature_columns, lags=[1, 3, 6, 12]):
-        if df.empty: return pd.DataFrame()
-        lagged_df = df.copy()
-        for col in feature_columns:
-            if col in lagged_df.columns:
-                for lag in lags:
-                    lagged_df[f'{col}_lag{lag}'] = lagged_df[col].shift(lag)
-        return lagged_df
-
-    def _calculate_innovation_indices(self, patent_features_norm, funding_features_norm, research_features_norm, config):
-        # This method needs feature_config, which should be passed or accessed from a config module
-        patent_score = 0
-        if not patent_features_norm.empty:
-            weighted_sum = sum(patent_features_norm.get(feat, 0) * weight for feat, weight in config['patent_weights'].items() if feat in patent_features_norm)
-            total_weight = sum(weight for feat, weight in config['patent_weights'].items() if feat in patent_features_norm)
-            patent_score = weighted_sum / total_weight if total_weight > 0 else 0
-
-        funding_score = 0
-        if not funding_features_norm.empty:
-            weighted_sum = sum(funding_features_norm.get(feat, 0) * weight for feat, weight in config['funding_weights'].items() if feat in funding_features_norm)
-            total_weight = sum(weight for feat, weight in config['funding_weights'].items() if feat in funding_features_norm)
-            funding_score = weighted_sum / total_weight if total_weight > 0 else 0
-
-        research_score = 0
-        if not research_features_norm.empty:
-            weighted_sum = sum(research_features_norm.get(feat, 0) * weight for feat, weight in config['research_weights'].items() if feat in research_features_norm)
-            total_weight = sum(weight for feat, weight in config['research_weights'].items() if feat in research_features_norm)
-            research_score = weighted_sum / total_weight if total_weight > 0 else 0
-
-        innovation_index = (0.40 * patent_score + 0.35 * funding_score + 0.25 * research_score)
-        commercial_readiness = (0.60 * funding_score + 0.40 * patent_score)
-        research_momentum = (0.70 * research_score + 0.30 * patent_score)
-
-        return pd.DataFrame({
-            'innovation_index': [innovation_index],
-            'commercial_readiness_index': [commercial_readiness],
-            'research_momentum_index': [research_momentum]
-        })
-
-    def _normalize_features(self, features_df, method='z_score'):
-        if features_df.empty: return features_df
-        if method == 'z_score':
-            # Ensure scaler is fitted only on training data.
-            # For simplicity here, it might be fit_transformed.
-            # Proper way: fit scaler on train, transform on train/test.
-            return pd.DataFrame(self.scaler.fit_transform(features_df), columns=features_df.columns, index=features_df.index)
-        elif method == 'min_max':
-            min_max_scaler = MinMaxScaler()
-            return pd.DataFrame(min_max_scaler.fit_transform(features_df), columns=features_df.columns, index=features_df.index)
-        return features_df
-
-    def prepare_training_data(self, historical_patent_features_list, historical_funding_features_list, historical_research_features_list, historical_targets_df, feature_engineering_config):
-        print("Warning: prepare_training_data is highly dependent on specific data structures and ETL.")
-        print("This example assumes X and y are pre-prepared for train_sector_models.")
-        # This would involve calls to _temporal_alignment, _normalize_features, _calculate_innovation_indices, _create_lagged_features
-        # Returning placeholders.
-        return pd.DataFrame(), pd.Series()
-
-    def _get_param_grid(self, model_name):
+    def _get_hyperparam_grid(self, model_name):
         if model_name == 'random_forest':
-            return {'n_estimators': [50, 100], 'max_depth': [5, 10], 'min_samples_split': [2, 5], 'min_samples_leaf': [1, 2]} # Reduced for speed
+            return {'n_estimators': [50, 100, 150], 'max_depth': [5, 10, None], 'min_samples_leaf': [1, 3, 5]}
         elif model_name == 'gradient_boosting':
-            return {'n_estimators': [50, 100], 'learning_rate': [0.05, 0.1], 'max_depth': [3, 5], 'subsample': [0.8, 1.0]} # Reduced
+            return {'n_estimators': [50, 100, 150], 'learning_rate': [0.01, 0.05, 0.1], 'max_depth': [3, 5]}
         return {}
 
-    def train_sector_models(self, X_train_full, y_train_full, sectors_column='sector_label'):
-        if X_train_full.empty or y_train_full.empty:
-            print("Training data is empty. Skipping model training.")
-            return {}
-        tscv = TimeSeriesSplit(n_splits=3) # Reduced splits for speed
-        unique_sectors = X_train_full[sectors_column].unique()
-        for sector in unique_sectors:
-            print(f"Training models for sector: {sector}...")
-            sector_mask = X_train_full[sectors_column] == sector
-            X_sector = X_train_full[sector_mask].drop(columns=[sectors_column])
-            y_sector = y_train_full[sector_mask]
-            X_sector_numeric = X_sector.select_dtypes(include=np.number).fillna(X_sector.select_dtypes(include=np.number).median())
-            if len(X_sector_numeric) < 20: # Min samples
-                print(f"Insufficient data for {sector}: {len(X_sector_numeric)} samples. Skipping.")
-                continue
-            self.sector_models[sector] = {}
-            self.feature_importances[sector] = {}
-            for model_name, model_blueprint in self.models_blueprints.items():
-                model = model_blueprint
-                param_grid = self._get_param_grid(model_name)
-                grid_search = GridSearchCV(estimator=model, param_grid=param_grid, cv=tscv, scoring='neg_mean_absolute_error', n_jobs=-1, verbose=0)
-                try:
-                    grid_search.fit(X_sector_numeric, y_sector)
-                    best_model = grid_search.best_estimator_
-                    self.sector_models[sector][model_name] = best_model
-                    print(f"  {sector} - {model_name}: Best MAE = {-grid_search.best_score_:.4f}")
-                    if hasattr(best_model, 'feature_importances_'):
-                        importances = pd.Series(best_model.feature_importances_, index=X_sector_numeric.columns)
-                        self.feature_importances[sector][model_name] = importances.sort_values(ascending=False)
-                except Exception as e:
-                    print(f"  Error training {model_name} for sector {sector}: {e}")
-        return self.sector_models
+    def _normalize_and_impute_for_training(self, X_df, sector_name, fit_scalers=True):
+        """ Normalize numeric features and impute NaNs. Fit scalers if training. """
+        X_numeric = X_df.select_dtypes(include=np.number).copy()
 
-    def validate_models(self, X_test_full, y_test_full, sectors_column='sector_label'):
-        if X_test_full.empty or y_test_full.empty:
-            print("Test data is empty. Skipping model validation.")
-            return {}
-        validation_results = {}
-        unique_sectors = X_test_full[sectors_column].unique()
-        for sector in unique_sectors:
-            if sector not in self.sector_models or not self.sector_models[sector]:
-                print(f"No trained models for sector '{sector}'. Skipping validation.")
+        if fit_scalers:
+            self.trained_scalers[sector_name] = {}
+
+        for col in X_numeric.columns:
+            # Impute first (e.g., with median of current data if fitting, or stored median if transforming)
+            median_val = X_numeric[col].median()
+
+            X_numeric[col] = X_numeric[col].fillna(median_val)
+
+            if fit_scalers:
+                scaler = StandardScaler() # Or MinMaxScaler, etc.
+                X_numeric[col] = scaler.fit_transform(X_numeric[[col]])
+                self.trained_scalers[sector_name][col] = {'scaler': scaler, 'median': median_val}
+            elif sector_name in self.trained_scalers and col in self.trained_scalers[sector_name]:
+                scaler = self.trained_scalers[sector_name][col]['scaler']
+                X_numeric[col] = scaler.transform(X_numeric[[col]])
+            # else: feature not seen in training, or no scaler for this sector, leave as is or error
+            # This case should ideally be handled by ensuring consistency in features upstream
+            # or by raising an error if a feature is expected to be scaled but no scaler exists.
+        return X_numeric
+
+    def train_all_sector_models(self, X_historical_full_df, y_historical_full_series, sector_id_column):
+        """
+        Train models for each sector present in the historical data.
+        X_historical_full_df: DataFrame with all features and a sector_id_column.
+        y_historical_full_series: Series with target values, indexed same as X.
+        """
+        if X_historical_full_df.empty or y_historical_full_series.empty:
+            print("Training data is empty. Aborting.")
+            return
+
+        unique_sectors = X_historical_full_df[sector_id_column].unique()
+        # Adjust n_splits based on data size, ensure at least 2 splits if possible
+        min_samples_per_series = 10 # Min samples needed for each training set in a split
+        n_total_samples = len(X_historical_full_df)
+        n_unique_sectors = len(unique_sectors) if unique_sectors.any() else 1
+
+        # Estimate max possible splits: (total_samples / num_sectors) / samples_per_split_set
+        # This is a rough guide. TimeSeriesSplit needs n_samples > n_splits.
+        estimated_max_splits = (n_total_samples // n_unique_sectors // min_samples_per_series) if n_unique_sectors > 0 else 0
+        n_splits_for_tscv = min(5, max(2, estimated_max_splits)) # Ensure at least 2 splits, max 5
+
+        # Ensure there are enough samples for even the minimum number of splits
+        if n_total_samples <= n_splits_for_tscv * n_unique_sectors :
+             print(f"Warning: Not enough data for reliable time series cross-validation with {n_splits_for_tscv} splits across {n_unique_sectors} sectors. Adjusting to fewer splits if possible or skipping CV for very small datasets.")
+             # Fallback for very small data: minimum 2 splits if data allows, or could skip CV.
+             # For simplicity here, we'll proceed but this is a critical check.
+             if n_total_samples <= n_unique_sectors: # Not enough data for even one split per sector
+                print("  Critically low data. Model training will be unreliable or fail.")
+                # Potentially return or raise an error
+
+        tscv = TimeSeriesSplit(n_splits=n_splits_for_tscv)
+
+        for sector_val in unique_sectors:
+            print(f"Processing sector: {sector_val}")
+            sector_mask = X_historical_full_df[sector_id_column] == sector_val
+            X_sector_raw = X_historical_full_df[sector_mask].drop(columns=[sector_id_column])
+            y_sector = y_historical_full_series[sector_mask]
+
+            if len(X_sector_raw) < n_splits_for_tscv + 1 : # Min samples for TimeSeriesSplit
+                print(f"  Skipping {sector_val}: Insufficient data for {n_splits_for_tscv}-fold CV ({len(X_sector_raw)} samples). Needs at least {n_splits_for_tscv+1}.")
                 continue
-            sector_mask = X_test_full[sectors_column] == sector
-            X_sector_test = X_test_full[sector_mask].drop(columns=[sectors_column])
-            y_sector_test = y_test_full[sector_mask]
-            X_sector_test_numeric = X_sector_test.select_dtypes(include=np.number).fillna(X_sector_test.select_dtypes(include=np.number).median())
-            if len(X_sector_test_numeric) == 0: continue
-            sector_results = {}
-            for model_name, model in self.sector_models[sector].items():
+            if len(X_sector_raw) < 20: # Arbitrary small number warning
+                 print(f"  Warning: Low data count for {sector_val} ({len(X_sector_raw)} samples). Model may not be robust.")
+
+
+            X_sector_processed = self._normalize_and_impute_for_training(X_sector_raw, sector_val, fit_scalers=True)
+            self.trained_feature_names[sector_val] = X_sector_processed.columns.tolist() # Save feature order
+
+            self.trained_sector_models[sector_val] = {}
+            for model_name, model_blueprint in self.models_blueprints.items():
+                model_instance = model_blueprint # Fresh instance
+                param_grid = self._get_hyperparam_grid(model_name)
+
+                grid_search = GridSearchCV(estimator=model_instance, param_grid=param_grid, cv=tscv,
+                                           scoring='neg_mean_squared_error', n_jobs=-1, verbose=0)
                 try:
-                    y_pred = model.predict(X_sector_test_numeric)
+                    grid_search.fit(X_sector_processed, y_sector)
+                    best_model = grid_search.best_estimator_
+                    self.trained_sector_models[sector_val][model_name] = best_model
+                    print(f"  Trained {model_name} for {sector_val}. Best CV MSE: {-grid_search.best_score_:.4f}")
+                except Exception as e:
+                    print(f"  Error training {model_name} for {sector_val}: {e}")
+
+        print("Sector model training complete.")
+
+
+    def validate_sector_models(self, X_test_full_df, y_test_full_series, sector_id_column):
+        """Validate trained models on a hold-out test set."""
+        results = {}
+        if X_test_full_df.empty or y_test_full_series.empty:
+            print("Test data is empty. Skipping validation.")
+            return results
+
+        for sector_val in X_test_full_df[sector_id_column].unique():
+            if sector_val not in self.trained_sector_models or not self.trained_sector_models.get(sector_val):
+                # print(f"No trained model for {sector_val} to validate.")
+                continue
+
+            if sector_val not in self.trained_feature_names or sector_val not in self.trained_scalers:
+                print(f"Missing feature names or scalers for sector {sector_val}. Cannot validate.")
+                continue
+
+            sector_mask = X_test_full_df[sector_id_column] == sector_val
+            X_sector_test_raw = X_test_full_df[sector_mask].drop(columns=[sector_id_column])
+            y_sector_test = y_test_full_series[sector_mask]
+
+            if X_sector_test_raw.empty:
+                # print(f"No test data for sector {sector_val} after filtering.")
+                continue
+
+            # Preprocess test data using stored scalers and feature order
+            X_sector_test_processed = self._normalize_and_impute_for_training(X_sector_test_raw, sector_val, fit_scalers=False)
+
+            # Reorder columns to match training feature order and handle missing columns
+            expected_features = self.trained_feature_names[sector_val]
+            X_reordered = pd.DataFrame(columns=expected_features, index=X_sector_test_processed.index)
+            for col in expected_features:
+                if col in X_sector_test_processed.columns:
+                    X_reordered[col] = X_sector_test_processed[col]
+                elif col in self.trained_scalers.get(sector_val, {}): # Was in training, use its median
+                     X_reordered[col] = self.trained_scalers[sector_val][col]['median']
+                else: # Should ideally not happen if preprocessing is consistent
+                    X_reordered[col] = 0 # Fallback, or raise error
+
+            results[sector_val] = {}
+            for model_name, trained_model in self.trained_sector_models[sector_val].items():
+                try:
+                    y_pred = trained_model.predict(X_reordered)
                     mae = mean_absolute_error(y_sector_test, y_pred)
                     rmse = np.sqrt(mean_squared_error(y_sector_test, y_pred))
-                    direction_accuracy = np.mean(np.sign(y_sector_test.fillna(0)) == np.sign(pd.Series(y_pred).fillna(0))) if len(y_sector_test) > 0 else 0
-                    sector_results[model_name] = {'mae': mae, 'rmse': rmse, 'direction_accuracy': direction_accuracy, 'predictions_sample': y_pred[:3].tolist(), 'actuals_sample': y_sector_test[:3].tolist()}
-                    print(f"  Validation {sector} - {model_name}: MAE={mae:.4f}, DirAcc={direction_accuracy:.2%}")
+                    # Direction accuracy (assuming positive target means growth)
+                    dir_acc = np.mean(np.sign(y_sector_test.fillna(0).values) == np.sign(pd.Series(y_pred).fillna(0).values))
+                    results[sector_val][model_name] = {'MAE': mae, 'RMSE': rmse, 'DirectionAccuracy': dir_acc}
+                    # print(f"  Validation - {sector_val} ({model_name}): MAE={mae:.3f}, RMSE={rmse:.3f}, DirAcc={dir_acc:.2%}")
                 except Exception as e:
-                    print(f"  Error validating {model_name} for sector {sector}: {e}")
-                    sector_results[model_name] = {'error': str(e)}
-            validation_results[sector] = sector_results
-        return validation_results
+                    print(f"  Error validating {model_name} for {sector_val}: {e}")
+                    results[sector_val][model_name] = {'error': str(e)}
+        return results
+
+```
