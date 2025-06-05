@@ -1,0 +1,11 @@
+requests
+pandas
+numpy
+scikit-learn
+arxiv
+feedparser
+textblob
+networkx
+joblib
+# scipy is imported via `from scipy import stats`
+scipy

@@ -1,0 +1,28 @@
+--- Innovation Prediction System ---
+
+--- Model Training & Prediction (Conceptual) ---
+Training models for sector: AI...
+  AI - random_forest: Best MAE = 0.0727
+  AI - gradient_boosting: Best MAE = 0.0958
+Training models for sector: Biotech...
+Insufficient data for Biotech: 12 samples. Skipping.
+Skipping forecast for Biotech: No trained model.
+
+Sector Forecasts (sample for 0 sectors):
+Warning: Not enough positive scores (1) for reliable 50th percentile for emergence.
+
+Emerging Technologies Identified (sample, 1):
+  Tech: Biotech, Score: 0.67
+
+Investment Opportunities (Top 1 sample, 1 total):
+  Sector/Tech: Biotech, Action: Monitor for Early Investment, Score: 0.67
+
+--- Monitoring & Maintenance (Conceptual) ---
+
+--- Uncertainty Handling (Conceptual) ---
+Caution (AI): USPTO data incomplete (75%). Confidence reduced.
+Conflicting signals for 'AI'. Pos: {'pat'}, Neg: {'fund'}. Increased uncertainty. Consider scenario analysis.
+
+No AI forecast for uncertainty demo.
+
+--- System Run Finished (Conceptual) ---
