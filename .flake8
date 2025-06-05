@@ -1,0 +1,6 @@
+[flake8]
+max-line-length = 88
+# Optionally, you can ignore specific errors project-wide if decided.
+# For example, to ignore F841 for unused exception variables if they are often printed:
+# extend-ignore = F841
+# For now, just set max-line-length.
