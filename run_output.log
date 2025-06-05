@@ -2,8 +2,8 @@
 
 --- Model Training & Prediction (Conceptual) ---
 Training models for sector: AI...
-  AI - random_forest: Best MAE = 0.0727
-  AI - gradient_boosting: Best MAE = 0.0958
+  AI - random_forest: Best MAE = 0.0790
+  AI - gradient_boosting: Best MAE = 0.0782
 Training models for sector: Biotech...
 Insufficient data for Biotech: 12 samples. Skipping.
 Skipping forecast for Biotech: No trained model.
@@ -12,10 +12,10 @@ Sector Forecasts (sample for 0 sectors):
 Warning: Not enough positive scores (1) for reliable 50th percentile for emergence.
 
 Emerging Technologies Identified (sample, 1):
-  Tech: Biotech, Score: 0.67
+  Tech: Biotech, Score: 0.42
 
 Investment Opportunities (Top 1 sample, 1 total):
-  Sector/Tech: Biotech, Action: Monitor for Early Investment, Score: 0.67
+  Sector/Tech: Biotech, Action: Monitor for Early Investment, Score: 0.42
 
 --- Monitoring & Maintenance (Conceptual) ---
 
