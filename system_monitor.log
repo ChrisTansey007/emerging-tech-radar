@@ -1,0 +1,4 @@
+2025-06-05 05:10:14,446 - INFO [monitor:54] - Setting data drift baselines...
+2025-06-05 05:10:14,447 - INFO [monitor:63] - Baselines set for 3 features.
+2025-06-05 05:10:14,447 - WARNING [manager:20] - Caution (AI): USPTO data incomplete (75%). Confidence reduced.
+2025-06-05 05:10:14,447 - WARNING [manager:32] - Conflicting signals for 'AI'. Pos: {'pat'}, Neg: {'fund'}. Increased uncertainty. Consider scenario analysis.
