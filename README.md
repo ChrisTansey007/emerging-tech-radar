@@ -3,11 +3,16 @@
 This repository is dedicated to tracking and evaluating emerging technologies. The goal is to provide a comprehensive overview of the latest trends and innovations in the tech industry.
 
 ## Table of Contents
-
 - [Introduction](#introduction)
 - [Technologies](#technologies)
 - [Contributing](#contributing)
 - [License](#license)
+
+## Getting Started / Local Setup
+
+The core project is located in the `innovation_system` directory. For detailed setup and execution instructions, please refer to the `innovation_system/README.md` file.
+
+This project uses Python. It is recommended to use a virtual environment. All necessary dependencies are listed in the `innovation_system/requirements.txt` file.
 
 ## Introduction
 

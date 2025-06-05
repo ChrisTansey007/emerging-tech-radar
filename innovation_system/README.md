@@ -37,9 +37,25 @@ engineers features, trains predictive models, and generates forecasts.
     \`\`\`
 
 4.  **Configure API Keys:**
-    - Update API keys in relevant configuration files or via environment variables as needed.
-      For example, Crunchbase API key in \`FundingDataCollector\` and potentially a PubMed API key in \`ResearchDataCollector\`.
-      These are currently placeholder values in the code (e.g., "YOUR_CRUNCHBASE_KEY").
+    - It is recommended to use environment variables to store your API keys for security and flexibility.
+      For example, you can set them in your terminal:
+      - For Linux/macOS:
+        ```bash
+        export CRUNCHBASE_API_KEY="YOUR_KEY"
+        export PUBMED_API_KEY="YOUR_KEY"
+        ```
+      - For Windows (Command Prompt):
+        ```bash
+        set CRUNCHBASE_API_KEY="YOUR_KEY"
+        set PUBMED_API_KEY="YOUR_KEY"
+        ```
+      - For Windows (PowerShell):
+        ```powershell
+        $env:CRUNCHBASE_API_KEY="YOUR_KEY"
+        $env:PUBMED_API_KEY="YOUR_KEY"
+        ```
+    - The application code can then access these keys using `os.environ.get('API_KEY_NAME')`. For instance, `os.environ.get('CRUNCHBASE_API_KEY')`.
+    - Alternatively, if you choose to use configuration files, ensure you update the placeholder values (e.g., "YOUR_CRUNCHBASE_KEY") in the relevant files within the `config/` directory or directly in the collector classes if they are not yet using external configs.
 
 ## Running the System
 
@@ -52,3 +68,4 @@ python main/run.py
 **Note:** The \`main/run.py\` script currently uses placeholder data and mock API calls for demonstration purposes.
 Full functionality requires valid API keys and potentially more extensive historical data for model training.
 The script also has temporary includes of classes and configurations which will be replaced by proper imports once the refactoring is complete.
+To connect the system to real data sources, you will need to implement the actual API calls within the respective data collector classes (e.g., in `data_collection/funding_data_collector.py`), replacing the current mock/placeholder logic, in addition to providing valid API keys.

@@ -2,13 +2,13 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import logging
-from innovation_system.data_collection.collectors import PatentDataCollector, FundingDataCollector, ResearchDataCollector
-from innovation_system.feature_engineering.engineer import FeatureEngineer
-from innovation_system.model_development.predictor import InnovationPredictor
-from innovation_system.prediction.generator import PredictionGenerator
-from innovation_system.monitoring.monitor import SystemMonitor
-from innovation_system.uncertainty_handling.manager import UncertaintyManager
-from innovation_system.config.settings import (
+from data_collection.collectors import PatentDataCollector, FundingDataCollector, ResearchDataCollector
+from feature_engineering.engineer import FeatureEngineer
+from model_development.predictor import InnovationPredictor
+from prediction.generator import PredictionGenerator
+from monitoring.monitor import SystemMonitor
+from uncertainty_handling.manager import UncertaintyManager
+from config.settings import (
     patent_config, funding_config, research_config,
     feature_config, model_config, prediction_config,
     monitoring_config, uncertainty_config
