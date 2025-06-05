@@ -19,18 +19,102 @@ class InnovationPredictor:
         self.feature_importances = {}
         self.scaler = StandardScaler() # For _normalize_features
 
-    def _temporal_alignment(self, patent_features, funding_features, research_features, targets_df):
-        # This method's logic was mostly placeholder. True alignment is complex and data-dependent.
-        # For now, it simulates a simple concat.
-        df_list = []
-        if not patent_features.empty: df_list.append(patent_features.add_suffix('_patent'))
-        if not funding_features.empty: df_list.append(funding_features.add_suffix('_funding'))
-        if not research_features.empty: df_list.append(research_features.add_suffix('_research'))
-        if not df_list: return pd.DataFrame()
-        aligned_data = pd.concat(df_list, axis=1)
-        return aligned_data
+    def _ensure_datetime_index(self, df, df_name):
+        if df is None or df.empty:
+            return pd.DataFrame() # Return empty DataFrame if input is None or empty
+
+        if not isinstance(df.index, pd.DatetimeIndex):
+            # Attempt to find a common date column
+            date_col_candidates = ['date', 'filing_date', 'published_date', 'timestamp']
+            date_col = None
+            for col in date_col_candidates:
+                if col in df.columns:
+                    date_col = col
+                    break
+
+            if date_col:
+                try:
+                    df.index = pd.to_datetime(df[date_col])
+                    df = df.drop(columns=[date_col])
+                except Exception as e:
+                    print(f"Warning: Could not convert column '{date_col}' to DatetimeIndex for {df_name}: {e}")
+                    # Return an empty DataFrame with a DatetimeIndex if conversion fails, to prevent downstream errors
+                    return pd.DataFrame(index=pd.to_datetime([]))
+            else:
+                print(f"Warning: No DatetimeIndex or common date column found for {df_name}. Returning empty DataFrame.")
+                return pd.DataFrame(index=pd.to_datetime([]))
+        return df
+
+    def _temporal_alignment(self, patent_features_df, funding_features_df, research_features_df, targets_df):
+        patent_features_df = self._ensure_datetime_index(patent_features_df, "patent_features_df")
+        funding_features_df = self._ensure_datetime_index(funding_features_df, "funding_features_df")
+        research_features_df = self._ensure_datetime_index(research_features_df, "research_features_df")
+        targets_df = self._ensure_datetime_index(targets_df, "targets_df")
+
+        all_dfs = []
+        if not patent_features_df.empty:
+            all_dfs.append(patent_features_df.add_suffix('_patent'))
+        if not funding_features_df.empty:
+            all_dfs.append(funding_features_df.add_suffix('_funding'))
+        if not research_features_df.empty:
+            all_dfs.append(research_features_df.add_suffix('_research'))
+
+        if not all_dfs: # If all feature dfs are empty
+            if not targets_df.empty:
+                 # Ensure targets_df has a valid DatetimeIndex for this path too
+                if not isinstance(targets_df.index, pd.DatetimeIndex) or targets_df.index.empty:
+                     print("Warning: targets_df is not empty but has no valid DatetimeIndex. Returning empty X, y.")
+                     return pd.DataFrame(index=pd.to_datetime([])), pd.Series(dtype='float64')
+
+                # Assuming target is the first column if not specified.
+                # A specific target column name should ideally be passed or configured.
+                target_col_name = targets_df.columns[0] if not targets_df.columns.empty else 'target'
+                return pd.DataFrame(index=targets_df.index), targets_df[target_col_name] if target_col_name in targets_df else pd.Series(dtype='float64')
+            return pd.DataFrame(index=pd.to_datetime([])), pd.Series(dtype='float64') # Return empty X and y with DatetimeIndex for X
+
+        # Merge feature dataframes
+        merged_features = all_dfs[0]
+        for df in all_dfs[1:]:
+            # Ensure indices are DatetimeIndex before merging
+            if not isinstance(merged_features.index, pd.DatetimeIndex):
+                print(f"Warning: merged_features lost DatetimeIndex before merging with {df.columns}. This is unexpected.")
+                # Attempt to recover or handle, though this indicates a deeper issue
+                # For now, return empty to prevent further errors
+                return pd.DataFrame(index=pd.to_datetime([])), pd.Series(dtype='float64')
+            if not isinstance(df.index, pd.DatetimeIndex):
+                print(f"Warning: DataFrame for {df.columns} lost DatetimeIndex. This is unexpected.")
+                # Skip merging this df or handle as error
+                continue
+
+            merged_features = pd.merge(merged_features, df, left_index=True, right_index=True, how='outer')
+
+        # Merge with targets
+        if not targets_df.empty:
+            if not isinstance(targets_df.index, pd.DatetimeIndex):
+                 print("Warning: targets_df lost DatetimeIndex before merging with features. This is unexpected.")
+                 # If targets_df has no valid index, cannot meaningfully merge.
+                 # Consider how to handle this; for now, may proceed with features only or error.
+                 # Let's assume an inner merge would result in empty if indices mismatch.
+                 final_df = merged_features # Effectively, no target data can be aligned.
+            else:
+                # Assume target column is 'target_growth_6m' or the first column if not named
+                target_col_name = 'target_growth_6m' if 'target_growth_6m' in targets_df.columns else targets_df.columns[0] if not targets_df.columns.empty else None
+                if target_col_name:
+                    final_df = pd.merge(merged_features, targets_df[[target_col_name]], left_index=True, right_index=True, how='inner')
+                else:
+                    print("Warning: No target column identified in targets_df. Proceeding without target alignment.")
+                    final_df = merged_features # No target column to merge.
+        else: # No targets, just return features (e.g. for prediction on new data)
+            final_df = merged_features
+
+        final_df = final_df.fillna(method='ffill').fillna(method='bfill')
+        return final_df
 
     def _create_lagged_features(self, df, feature_columns, lags=[1, 3, 6, 12]):
+        # Ensure df has a DatetimeIndex before trying to shift, otherwise shift is meaningless
+        if not isinstance(df.index, pd.DatetimeIndex):
+            print("Warning: Dataframe does not have a DatetimeIndex in _create_lagged_features. Lagged features may be incorrect.")
+            # Potentially convert or raise error, for now, proceed cautiously.
         if df.empty: return pd.DataFrame()
         lagged_df = df.copy()
         for col in feature_columns:
@@ -81,12 +165,70 @@ class InnovationPredictor:
             return pd.DataFrame(min_max_scaler.fit_transform(features_df), columns=features_df.columns, index=features_df.index)
         return features_df
 
-    def prepare_training_data(self, historical_patent_features_list, historical_funding_features_list, historical_research_features_list, historical_targets_df, feature_engineering_config):
-        print("Warning: prepare_training_data is highly dependent on specific data structures and ETL.")
-        print("This example assumes X and y are pre-prepared for train_sector_models.")
-        # This would involve calls to _temporal_alignment, _normalize_features, _calculate_innovation_indices, _create_lagged_features
-        # Returning placeholders.
-        return pd.DataFrame(), pd.Series()
+    def prepare_training_data(self, patent_df, funding_df, research_df, targets_df, feature_engineering_config=None): # Simplified input
+        # Assume target column in targets_df is named 'target_growth_6m'
+        # This name should be configured or passed if it varies.
+        target_column_name = 'target_growth_6m'
+
+        aligned_df = self._temporal_alignment(patent_df, funding_df, research_df, targets_df)
+
+        if aligned_df.empty:
+            print("Warning: Alignment resulted in an empty DataFrame. Returning empty X, y.")
+            return pd.DataFrame(), pd.Series(dtype='float64')
+
+        if target_column_name not in aligned_df.columns:
+            print(f"Warning: Target column '{target_column_name}' not found after alignment. Check target DataFrame and its main column name. Returning empty X, y.")
+            # If target is not present, we can't form y.
+            # Depending on use case, might return X only, but for training, y is needed.
+            return pd.DataFrame(index=aligned_df.index), pd.Series(dtype='float64')
+
+        y = aligned_df[target_column_name]
+        # Drop target column and any other non-feature columns (e.g. if original target_df had multiple columns)
+        X = aligned_df.drop(columns=[col for col in targets_df.columns if col in aligned_df.columns] if targets_df is not None and not targets_df.empty else [])
+
+
+        if X.empty:
+            print("Warning: Feature set X is empty after alignment and dropping target. Returning empty X, y.")
+            return pd.DataFrame(), pd.Series(dtype='float64')
+
+        # Normalize features
+        # The scaler should be fitted on the training set only in a real pipeline.
+        # For this refactoring, we use fit_transform, assuming this method prepares data for a single training run.
+        X_normalized = self._normalize_features(X)
+        if not isinstance(X_normalized, pd.DataFrame): # Ensure _normalize_features returns DataFrame
+             X_normalized = pd.DataFrame(X_normalized, index=X.index, columns=X.columns)
+
+
+        # Create lagged features
+        feature_columns_for_lags = X_normalized.columns.tolist()
+        X_lagged = self._create_lagged_features(X_normalized, feature_columns_for_lags)
+
+        # Handle NaNs after lagging
+        if X_lagged.empty:
+            print("Warning: X_lagged is empty. Returning empty X, y.")
+            return pd.DataFrame(), pd.Series(dtype='float64')
+
+        X_processed = X_lagged.fillna(X_lagged.median())
+
+        # Align y with X_processed before dropping more NaNs from X_processed
+        # This ensures that y corresponds to the rows kept in X_processed so far
+        y_aligned_pre_dropna = y.reindex(X_processed.index)
+
+        # Drop rows that might still have NaNs (e.g., if all values in a column were NaN for median)
+        initial_rows = len(X_processed)
+        X_processed = X_processed.dropna()
+
+        # Final alignment of y with X_processed after all NaN removals from X
+        y_aligned = y_aligned_pre_dropna.reindex(X_processed.index)
+
+        if initial_rows > 0 and len(X_processed) < initial_rows:
+            print(f"Dropped {initial_rows - len(X_processed)} rows from X due to remaining NaNs after lagging and median fill.")
+
+        if X_processed.empty:
+            print("Warning: X_processed is empty after NaN handling. Returning empty X, y.")
+            return pd.DataFrame(), pd.Series(dtype='float64')
+
+        return X_processed, y_aligned
 
     def _get_param_grid(self, model_name):
         if model_name == 'random_forest':
