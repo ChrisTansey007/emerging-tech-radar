@@ -8,6 +8,7 @@ import arxiv
 # feedparser was imported but not used directly in PatentDataCollector or ResearchDataCollector,
 # but keeping it here if it's intended for WIPO/EPO extensions.
 import feedparser
+import os
 
 class PatentDataCollector:
     def __init__(self):
@@ -74,6 +75,23 @@ class PatentDataCollector:
                  print(f"Missing critical data for patent: {patent.get('patent_id')}")
 
         print(f"Validated {len(valid_patents)}/{len(patents)} patents")
+
+        # Save to Parquet
+        if valid_patents:
+            df = pd.DataFrame(valid_patents)
+            output_dir = "data/raw"
+            os.makedirs(output_dir, exist_ok=True)
+            filepath = os.path.join(output_dir, "patents.parquet")
+            if not df.empty:
+                try:
+                    df.to_parquet(filepath, index=False)
+                    print(f"Saved patent data to {filepath}")
+                except Exception as e:
+                    print(f"Error saving patent data to Parquet: {e}")
+            elif os.path.exists(filepath): # If df is empty but file exists, implies current collection is empty
+                print(f"No new patent data to save to {filepath}. Existing file unchanged or will be overwritten if it was from a different empty run.")
+
+
         return valid_patents
 
 class FundingDataCollector:
@@ -98,6 +116,22 @@ class FundingDataCollector:
             except Exception as e:
                 print(f"Error collecting '{category_uuid_or_name}' funding: {e}")
                 continue
+
+        # Save to Parquet
+        if all_rounds:
+            df = pd.DataFrame(all_rounds)
+            output_dir = "data/raw"
+            os.makedirs(output_dir, exist_ok=True)
+            filepath = os.path.join(output_dir, "funding.parquet")
+            if not df.empty:
+                try:
+                    df.to_parquet(filepath, index=False)
+                    print(f"Saved funding data to {filepath}")
+                except Exception as e:
+                    print(f"Error saving funding data to Parquet: {e}")
+            elif os.path.exists(filepath):
+                 print(f"No new funding data to save to {filepath}. Existing file unchanged or will be overwritten if it was from a different empty run.")
+
         return all_rounds
 
     def _fetch_category_funding(self, category_identifier, announced_on_after):

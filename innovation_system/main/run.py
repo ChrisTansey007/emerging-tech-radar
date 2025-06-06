@@ -22,6 +22,7 @@ from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor # 
 # Temporarily include classes and configs here for the script to be runnable before full refactor.
 # This is NOT the final state. These will be replaced by proper imports.
 import argparse
+import os
 
 
 
@@ -52,8 +53,22 @@ if __name__ == '__main__':
         default="6,12,24", # Default from design, or use model_config
         help='Comma-separated list of prediction horizons in months (e.g., "6,12,18").'
     )
+    parser.add_argument(
+        "--force-collect",
+        action="store_true", # Creates a boolean flag, default is False
+        help="Force data collection/generation even if Parquet files exist."
+    )
 
     args = parser.parse_args()
+
+    # Define Parquet file paths
+    DATA_DIR = "data/raw"
+    PATENTS_FILE = os.path.join(DATA_DIR, "patents.parquet")
+    FUNDING_FILE = os.path.join(DATA_DIR, "funding.parquet")
+    RESEARCH_FILE = os.path.join(DATA_DIR, "research_papers.parquet")
+
+    # Ensure data directory exists (important for saving)
+    os.makedirs(DATA_DIR, exist_ok=True)
 
     # Process parsed arguments
     cli_sectors = [s.strip() for s in args.sectors.split(',')]
@@ -128,58 +143,90 @@ if __name__ == '__main__':
     # print("\n--- Model Training & Prediction (Conceptual) ---") # Original generic print
     predictor = InnovationPredictor(random_state=123)
 
-    print("\n--- Starting Data Simulation and Feature Preparation ---")
-    # Adapt mock data generation based on CLI args
-    # Calculate number of monthly periods between cli_start_date and cli_end_date
-    num_periods = (cli_end_date.year - cli_start_date.year) * 12 + (cli_end_date.month - cli_start_date.month) + 1
-    if num_periods <= 0:
-        print(f"Error: The start date {cli_start_date} and end date {cli_end_date} result in {num_periods} periods. Please provide a valid date range.")
-        exit(1)
+    print("\n--- Starting Data Simulation/Loading and Feature Preparation ---")
 
-    dates = pd.date_range(start=cli_start_date, end=cli_end_date, freq='MS') # MS for month start
-    num_periods = len(dates) # Update num_periods to actual length of dates range
+    # Check if files exist
+    patents_file_exists = os.path.exists(PATENTS_FILE)
+    funding_file_exists = os.path.exists(FUNDING_FILE)
+    research_file_exists = os.path.exists(RESEARCH_FILE)
+    all_files_exist = patents_file_exists and funding_file_exists and research_file_exists
 
-    # Distribute sectors among the periods
-    num_cli_sectors = len(cli_sectors)
-    sector_labels = []
-    if num_cli_sectors > 0:
-        base_len_per_sector = num_periods // num_cli_sectors
-        remainder = num_periods % num_cli_sectors
+    if args.force_collect or not all_files_exist:
+        print("\n--- Generating and Saving Mock Data ---")
+        if args.force_collect:
+            print("Reason: --force-collect specified.")
+        if not all_files_exist:
+            print(f"Reason: One or more data files missing (Patents: {patents_file_exists}, Funding: {funding_file_exists}, Research: {research_file_exists}).")
+
+        # Adapt mock data generation based on CLI args
+        num_periods_calc = (cli_end_date.year - cli_start_date.year) * 12 + (cli_end_date.month - cli_start_date.month) + 1
+        if num_periods_calc <= 0:
+            print(f"Error: The start date {cli_start_date} and end date {cli_end_date} result in {num_periods_calc} periods. Please provide a valid date range.")
+            exit(1)
+
+        dates_idx = pd.date_range(start=cli_start_date, end=cli_end_date, freq='MS') # MS for month start
+        num_periods_actual = len(dates_idx)
+
+        sector_list_for_mock = []
+        if cli_sectors:
+            base_len_per_sector = num_periods_actual // len(cli_sectors)
+            remainder = num_periods_actual % len(cli_sectors)
+            for i, sector in enumerate(cli_sectors):
+                sector_len = base_len_per_sector + (1 if i < remainder else 0)
+                sector_list_for_mock.extend([sector] * sector_len)
+        else:
+            sector_list_for_mock = ['DefaultSector'] * num_periods_actual
+
+        mock_patent_columns = ['filing_rate_3m', 'filing_rate_12m', 'tech_diversity_shannon', 'unique_inventor_count', 'citation_velocity_avg']
+        mock_patent_df = pd.DataFrame(np.random.rand(num_periods_actual, len(mock_patent_columns)), index=dates_idx, columns=mock_patent_columns)
+        mock_patent_df['sector_label'] = sector_list_for_mock
+
+        mock_funding_columns = ['funding_deals_velocity_6m', 'funding_amount_velocity_6m_usd', 'avg_round_size_usd', 'seed_ratio', 'series_a_ratio']
+        mock_funding_df = pd.DataFrame(np.random.rand(num_periods_actual, len(mock_funding_columns)), index=dates_idx, columns=mock_funding_columns)
+        mock_funding_df['sector_label'] = sector_list_for_mock
+
+        mock_research_columns = ['publication_rate_6m', 'avg_citation_count', 'avg_authors_per_paper', 'category_diversity_shannon']
+        mock_research_df = pd.DataFrame(np.random.rand(num_periods_actual, len(mock_research_columns)), index=dates_idx, columns=mock_research_columns)
+        mock_research_df['sector_label'] = sector_list_for_mock
+
+        print(f"Saving mock patents data to {PATENTS_FILE}...")
+        mock_patent_df.to_parquet(PATENTS_FILE)
+        print(f"Saving mock funding data to {FUNDING_FILE}...")
+        mock_funding_df.to_parquet(FUNDING_FILE)
+        print(f"Saving mock research data to {RESEARCH_FILE}...")
+        mock_research_df.to_parquet(RESEARCH_FILE)
+        print("Mock data generated and saved.")
+
+    else:
+        print("\n--- Loading Mock Data from Parquet Files ---")
+        print(f"Loading patents data from {PATENTS_FILE}...")
+        mock_patent_df = pd.read_parquet(PATENTS_FILE)
+        print(f"Loading funding data from {FUNDING_FILE}...")
+        mock_funding_df = pd.read_parquet(FUNDING_FILE)
+        print(f"Loading research data from {RESEARCH_FILE}...")
+        mock_research_df = pd.read_parquet(RESEARCH_FILE)
+        print("Mock data loaded.")
+
+    # Generate mock_targets_df in memory, ensuring alignment with loaded/generated feature data
+    num_target_periods = len(mock_patent_df)
+    dates_for_targets = mock_patent_df.index
+
+    target_sector_list = []
+    if cli_sectors:
+        base_len_target = num_target_periods // len(cli_sectors)
+        remainder_target = num_target_periods % len(cli_sectors)
         for i, sector in enumerate(cli_sectors):
-            sector_len = base_len_per_sector + (1 if i < remainder else 0)
-            sector_labels.extend([sector] * sector_len)
-    else: # Default if no sectors provided (though argparse has a default)
-        sector_labels = ['DefaultSector'] * num_periods
+            sector_len = base_len_target + (1 if i < remainder_target else 0)
+            target_sector_list.extend([sector] * sector_len)
+    else:
+        target_sector_list = ['DefaultSector'] * num_target_periods
 
+    mock_targets_df = pd.DataFrame({
+        'target_growth_6m': np.random.randn(num_target_periods) * 0.1,
+        'sector_label': target_sector_list
+    }, index=dates_for_targets)
+    print("Mock targets data prepared in memory.")
 
-    mock_patent_df = pd.DataFrame(
-        np.random.rand(num_periods, 5),
-        index=dates[:num_periods], # Ensure index matches data length if num_periods was adjusted
-        columns=['filing_rate_3m', 'filing_rate_12m', 'tech_diversity_shannon', 'unique_inventor_count', 'citation_velocity_avg']
-    )
-    mock_patent_df['sector_label'] = sector_labels
-
-    mock_funding_df = pd.DataFrame(
-        np.random.rand(num_periods, 5),
-        index=dates[:num_periods],
-        columns=['funding_deals_velocity_6m', 'funding_amount_velocity_6m_usd', 'avg_round_size_usd', 'seed_ratio', 'series_a_ratio']
-    )
-    mock_funding_df['sector_label'] = sector_labels
-
-    mock_research_df = pd.DataFrame(
-        np.random.rand(num_periods, 4),
-        index=dates[:num_periods],
-        columns=['publication_rate_6m', 'avg_citation_count', 'avg_authors_per_paper', 'category_diversity_shannon']
-    )
-    mock_research_df['sector_label'] = sector_labels
-
-    mock_targets_df = pd.DataFrame(
-        np.random.randn(num_periods, 1) * 0.1,
-        index=dates[:num_periods],
-        columns=['target_growth_6m']
-    )
-    mock_targets_df['sector_label'] = sector_labels
-    print("Mock data generated successfully.")
 
     # Call prepare_training_data
     # Pass DataFrames without 'sector_label' for features, as predictor doesn't handle it internally during alignment.

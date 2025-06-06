@@ -67,6 +67,9 @@ The `main/run.py` script supports command-line arguments to customize the analys
 *   `--horizons "H1,H2,H3"`
     *   **Description:** Defines a comma-separated list of prediction horizons in months (e.g., for forecasts).
     *   **Default:** `"6,12,24"`
+*   `--force-collect`
+    *   **Description:** A boolean flag. If specified, it forces the system to regenerate data (currently mock data) and save it, even if existing data files are found in `data/raw/`. Without this flag, the system attempts to load pre-existing data from `data/raw/` to speed up runs.
+    *   **Default:** Not set (i.e., False).
 
 **Usage Examples:**
 
@@ -90,3 +93,15 @@ The `main/run.py` script supports command-line arguments to customize the analys
     ```bash
     python innovation_system/main/run.py --sectors "AI"
     ```
+
+5.  **Force data regeneration even if files exist:**
+    ```bash
+    python innovation_system/main/run.py --force-collect --sectors "AI"
+    ```
+
+**Note on Data Handling:**
+
+The script now incorporates a basic data persistence layer. When data is generated (currently mock data, based on CLI parameters), it is saved to Parquet files within the `data/raw/` directory (e.g., `patents.parquet`, `funding.parquet`, `research_papers.parquet`).
+
+On subsequent runs, the system will load data from these files by default, if they exist. This behavior can be overridden using the `--force-collect` flag, which will force regeneration and saving of the data. This feature is intended to speed up development and repeated runs by avoiding redundant data processing.
+The `data/raw/` directory contains a `.gitkeep` file to ensure the directory structure is part of the repository, while the `data/.gitignore` file is configured to exclude `*.parquet` files from being committed.
