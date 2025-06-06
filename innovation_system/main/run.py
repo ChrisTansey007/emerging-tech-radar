@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import logging
-from innovation_system.data_collection.collectors import PatentDataCollector, FundingDataCollector, ResearchDataCollector
+from innovation_system.data_collection.collectors import PatentDataCollector, FundingDataCollector, ResearchDataCollector, LivePatentDataCollector
 from innovation_system.feature_engineering.engineer import FeatureEngineer
 from innovation_system.model_development.predictor import InnovationPredictor
 from innovation_system.prediction.generator import PredictionGenerator
@@ -65,7 +65,8 @@ if __name__ == '__main__':
     DATA_DIR = "data/raw" # For feature data
     MONITORING_DB_DIR = "data" # For monitoring database
 
-    PATENTS_FILE = os.path.join(DATA_DIR, "patents.parquet")
+    # PATENTS_FILE = os.path.join(DATA_DIR, "patents.parquet") # Old mock USPTO patents
+    EPO_PATENTS_FILE = os.path.join(DATA_DIR, "patents_epo.parquet") # For EPO data
     FUNDING_FILE = os.path.join(DATA_DIR, "funding.parquet")
     RESEARCH_FILE = os.path.join(DATA_DIR, "research_papers.parquet")
 
@@ -107,77 +108,153 @@ if __name__ == '__main__':
                         filemode='a')
 
     # --- Phase 1: Data Collection (Conceptual Instantiation) ---
-    # patent_collector = PatentDataCollector()
-    # funding_collector = FundingDataCollector()
-    # research_collector = ResearchDataCollector()
+    # patent_collector = PatentDataCollector() # Old USPTO mock collector
+    # funding_collector = FundingDataCollector() # Keep for now
+    # research_collector = ResearchDataCollector() # Keep for now
 
-    print("\n--- Starting Data Simulation/Loading ---")
-    patents_file_exists = os.path.exists(PATENTS_FILE)
+    print("\n--- Starting Data Collection/Loading ---")
+
+    # Define expected columns for patent_df, especially for fallback
+    # Based on mock data and potential needs of FeatureEngineer
+    # 'filing_date' from mock is 'publication_date' from EPO.
+    # 'tech_class' from mock is like 'cpc' (though EPO provides more detailed CPCs)
+    expected_patent_columns = [
+        'patent_id', 'title', 'publication_date', 'abstract', 'inventors',
+        'assignees', 'cpc', 'source', 'sector_label', 'citations' # citations might not be available from initial EPO parse
+    ]
+
+    patent_df = pd.DataFrame(columns=expected_patent_columns) # Initialize empty
+    epo_patents_file_exists = os.path.exists(EPO_PATENTS_FILE)
+
+    if args.force_collect or not epo_patents_file_exists:
+        print("\n--- Collecting Live EPO Patent Data ---")
+        if args.force_collect: print("Reason: --force-collect specified.")
+        if not epo_patents_file_exists: print(f"Reason: EPO patent data file missing ({EPO_PATENTS_FILE}).")
+
+        live_patent_collector = LivePatentDataCollector()
+
+        # Construct CQL query from cli_sectors
+        # Example: (ti="AI" OR ab="AI") OR (ti="Biotech" OR ab="Biotech")
+        if cli_sectors:
+            sector_queries = []
+            for sector in cli_sectors:
+                # Basic query: search in title (ti) or abstract (ab)
+                # Using exact phrase match with quotes for multi-word sectors if needed,
+                # but for single words like "AI", quotes are optional in many systems.
+                # EPO OPS CQL is generally keyword-based, so exact field targeting like ti= or ab= is good.
+                escaped_sector = sector.replace('"', '""') # Basic escaping if sector names have quotes
+                sector_queries.append(f'(ti="{escaped_sector}" OR ab="{escaped_sector}")')
+            epo_cql_query = " OR ".join(sector_queries)
+            print(f"Constructed EPO CQL Query: {epo_cql_query}")
+
+            epo_patent_data_list = live_patent_collector.collect_epo_patents(
+                search_query=epo_cql_query,
+                start_date_str=args.start_date, # Already in YYYY-MM-DD
+                end_date_str=args.end_date     # Already in YYYY-MM-DD
+            )
+
+            if epo_patent_data_list:
+                patent_df = pd.DataFrame(epo_patent_data_list)
+                # Ensure all expected columns are present, add missing ones with None/NaN
+                for col in expected_patent_columns:
+                    if col not in patent_df.columns:
+                        patent_df[col] = None # Or np.nan for numeric types if appropriate
+
+                # Basic sector labeling: assign all patents from a multi-sector query to the first sector,
+                # or a combined label. This is a simplification.
+                # For now, we'll add a generic label or leave it to be handled later.
+                # If 'sector_label' is crucial downstream, this needs refinement.
+                # The current LivePatentDataCollector doesn't assign sector_label.
+                if 'sector_label' not in patent_df.columns:
+                     patent_df['sector_label'] = ", ".join(cli_sectors) if cli_sectors else "DefaultEPO"
+
+                # Rename 'publication_date' to 'filing_date' if FeatureEngineer expects 'filing_date'
+                # Based on previous mock data, 'filing_date' was used.
+                if 'publication_date' in patent_df.columns and 'filing_date' not in patent_df.columns:
+                    patent_df.rename(columns={'publication_date': 'filing_date'}, inplace=True)
+
+                print(f"Collected {len(patent_df)} patents from EPO OPS.")
+                # Data is saved to EPO_PATENTS_FILE by _save_patent_data_to_parquet within collect_epo_patents
+            else:
+                print("No patents collected from EPO OPS. Empty DataFrame created.")
+                patent_df = pd.DataFrame(columns=expected_patent_columns)
+        else:
+            print("No sectors specified for EPO patent collection. Skipping.")
+            patent_df = pd.DataFrame(columns=expected_patent_columns)
+
+    elif epo_patents_file_exists:
+        print(f"\n--- Loading EPO Patent Data from {EPO_PATENTS_FILE} ---")
+        try:
+            patent_df = pd.read_parquet(EPO_PATENTS_FILE)
+            # Rename 'publication_date' to 'filing_date' if FeatureEngineer expects 'filing_date'
+            if 'publication_date' in patent_df.columns and 'filing_date' not in patent_df.columns:
+                patent_df.rename(columns={'publication_date': 'filing_date'}, inplace=True)
+            print(f"Loaded {len(patent_df)} patents from {EPO_PATENTS_FILE}.")
+        except Exception as e:
+            print(f"Error loading patents from {EPO_PATENTS_FILE}: {e}. Creating empty DataFrame.")
+            patent_df = pd.DataFrame(columns=expected_patent_columns)
+
+    # Fallback: If patent_df is still empty, ensure it's a DataFrame with expected columns
+    if patent_df.empty:
+        print("Warning: Patent data is empty after attempting collection and loading. Using empty DataFrame with predefined columns.")
+        patent_df = pd.DataFrame(columns=expected_patent_columns)
+        # Ensure 'filing_date' is present if that's what FeatureEngineer uses
+        if 'filing_date' not in patent_df.columns and 'publication_date' in patent_df.columns :
+             patent_df.rename(columns={'publication_date': 'filing_date'}, inplace=True)
+        elif 'filing_date' not in patent_df.columns and 'publication_date' not in patent_df.columns:
+             patent_df['filing_date'] = None
+
+
+    # --- Funding and Research Data Collection (largely unchanged for now, but uses new file existence checks) ---
     funding_file_exists = os.path.exists(FUNDING_FILE)
     research_file_exists = os.path.exists(RESEARCH_FILE)
-    all_data_files_exist = patents_file_exists and funding_file_exists and research_file_exists
+    # Note: all_data_files_exist check was for the old PATENTS_FILE, now we check individually or for specific needs.
 
-    if args.force_collect or not all_data_files_exist:
-        print("\n--- Generating and Saving Source Data ---")
-        if args.force_collect: print("Reason: --force-collect specified.")
-        if not all_data_files_exist: print(f"Reason: One or more data files missing (Patents: {patents_file_exists}, Funding: {funding_file_exists}, Research: {research_file_exists}).")
-
+    # Mock Funding Data (keep as is for now, unless specified to change)
+    mock_funding_df = pd.DataFrame() # Initialize
+    if args.force_collect or not funding_file_exists:
+        print("\n--- Generating and Saving Mock Funding Data ---")
+        # Simplified mock funding data generation from original script
         num_periods_calc = (cli_end_date.year - cli_start_date.year) * 12 + (cli_end_date.month - cli_start_date.month) + 1
-        if num_periods_calc <= 0:
-            print(f"Error: Date range results in {num_periods_calc} periods. Provide a valid range.")
-            exit(1)
-
-        dates_idx = pd.date_range(start=cli_start_date, end=cli_end_date, freq='MS')
+        dates_idx = pd.date_range(start=cli_start_date, end=cli_end_date, freq='MS') if num_periods_calc > 0 else pd.Index([])
         num_periods_actual = len(dates_idx)
+        if num_periods_actual > 0 :
+            sector_list_for_mock = []
+            if cli_sectors:
+                base_len_per_sector = num_periods_actual // len(cli_sectors)
+                remainder = num_periods_actual % len(cli_sectors)
+                for i, sector in enumerate(cli_sectors):
+                    sector_len = base_len_per_sector + (1 if i < remainder else 0)
+                    sector_list_for_mock.extend([sector] * sector_len)
+            else:
+                sector_list_for_mock = ['DefaultSector'] * num_periods_actual
 
-        sector_list_for_mock = []
-        if cli_sectors:
-            base_len_per_sector = num_periods_actual // len(cli_sectors)
-            remainder = num_periods_actual % len(cli_sectors)
-            for i, sector in enumerate(cli_sectors):
-                sector_len = base_len_per_sector + (1 if i < remainder else 0)
-                sector_list_for_mock.extend([sector] * sector_len)
+            mock_funding_columns = ['funding_deals_velocity_6m', 'funding_amount_velocity_6m_usd', 'avg_round_size_usd', 'seed_ratio', 'series_a_ratio']
+            mock_funding_df = pd.DataFrame(np.random.rand(num_periods_actual, len(mock_funding_columns)), index=dates_idx, columns=mock_funding_columns)
+            mock_funding_df['sector_label'] = sector_list_for_mock[:num_periods_actual] # Ensure length match
+            mock_funding_df.to_parquet(FUNDING_FILE)
+            print(f"Saved mock funding data to {FUNDING_FILE}")
         else:
-            sector_list_for_mock = ['DefaultSector'] * num_periods_actual
-
-        # Enhanced Mock Patent Data Generation
-        num_mock_patents = num_periods_actual
-        mock_patent_data_list = []
-        for i in range(num_mock_patents):
-            current_filing_date = dates_idx[i]
-            num_inventors = np.random.randint(1, 4)
-            inventors = [f"Inventor Last {j}, Inventor First {j}" for j in range(num_inventors)]
-            num_cpcs = np.random.randint(1, 3)
-            cpc_prefixes = ["G06N", "H04L", "A61K", "C12Q", "H01L", "B60W", "F03D"] # Added more variety
-            cpcs = [f"{np.random.choice(cpc_prefixes)}{np.random.randint(1,20)}/{np.random.randint(100,500)}" for _ in range(num_cpcs)]
-
-            mock_patent_data_list.append({
-                'patent_id': f"PG{np.random.randint(10000000, 99999999)}",
-                'title': f"Mock Invention Title {i} for sector {sector_list_for_mock[i]}",
-                'filing_date': current_filing_date.strftime('%Y-%m-%d'),
-                'assignee': f"Mock Assignee Company {np.random.randint(1, 100)}",
-                'inventors': inventors,
-                'tech_class': cpcs[0] if num_cpcs == 1 else cpcs,
-                'abstract': f"This is a detailed mock abstract for patent {i} concerning {sector_list_for_mock[i]}. It includes keywords like innovation, technology, and {sector_list_for_mock[i].lower()} breakthrough. " * 2,
-                'citations': np.random.randint(0, 20),
-                'source': 'USPTO_mock',
-                'sector_label': sector_list_for_mock[i]
-            })
-        mock_patent_df = pd.DataFrame(mock_patent_data_list)
-        # The FeatureEngineer expects 'filing_date' as a column, and will convert it.
-        # Set index to dates_idx for alignment with other time-series mock data.
-        mock_patent_df.index = dates_idx[:len(mock_patent_df)]
+            print("Cannot generate mock funding data, date range is invalid.")
+            mock_funding_df = pd.DataFrame(columns=['funding_deals_velocity_6m', 'funding_amount_velocity_6m_usd', 'avg_round_size_usd', 'seed_ratio', 'series_a_ratio', 'sector_label'])
 
 
-        mock_funding_columns = ['funding_deals_velocity_6m', 'funding_amount_velocity_6m_usd', 'avg_round_size_usd', 'seed_ratio', 'series_a_ratio']
-        mock_funding_df = pd.DataFrame(np.random.rand(num_periods_actual, len(mock_funding_columns)), index=dates_idx, columns=mock_funding_columns)
-        mock_funding_df['sector_label'] = sector_list_for_mock
+    elif funding_file_exists:
+        print(f"\n--- Loading Funding Data from {FUNDING_FILE} ---")
+        mock_funding_df = pd.read_parquet(FUNDING_FILE)
+        print(f"Loaded {len(mock_funding_df)} funding records.")
+    else: # Fallback if file does not exist and not forced
+        print("Warning: Funding data file does not exist and force_collect is false. Using empty DataFrame.")
+        mock_funding_df = pd.DataFrame(columns=['funding_deals_velocity_6m', 'funding_amount_velocity_6m_usd', 'avg_round_size_usd', 'seed_ratio', 'series_a_ratio', 'sector_label'])
 
+
+    # Research Data (keep as is for now)
+    research_df = pd.DataFrame() # Initialize
+    if args.force_collect or not research_file_exists:
+        print("\n--- Collecting/Generating and Saving Research Data ---")
         research_collector = ResearchDataCollector()
-        research_df = pd.DataFrame()
         days_back_calc = (cli_end_date - cli_start_date).days
         actual_days_back = max(1, days_back_calc)
-
         arxiv_categories_to_try = []
         sector_to_arxiv_cat = { "AI": "cs.AI", "ML": "cs.LG", "CV": "cs.CV", "LG": "cs.LG", "RO": "cs.RO", "CS.AI": "cs.AI", "CS.LG": "cs.LG", "CS.CV": "cs.CV", "CS.RO": "cs.RO", "BIOTECH": "q-bio.BM", "Q-BIO.BM": "q-bio.BM", "QUANTUM": "quant-ph", "QUANT-PH": "quant-ph" }
         if cli_sectors:
@@ -203,25 +280,22 @@ if __name__ == '__main__':
             research_df = pd.DataFrame(mock_research_data_list)
             if 'published_date' in research_df.columns: research_df['published_date'] = pd.to_datetime(research_df['published_date'])
             print(f"Generated {len(research_df)} mock research papers.")
-
-        print(f"Saving mock patents data to {PATENTS_FILE}...")
-        mock_patent_df.to_parquet(PATENTS_FILE)
-        print(f"Saving mock funding data to {FUNDING_FILE}...")
-        mock_funding_df.to_parquet(FUNDING_FILE)
-        print(f"Saving research data (live or mock) to {RESEARCH_FILE}...")
         research_df.to_parquet(RESEARCH_FILE)
-        print("All source data saved.")
-    else:
-        print("\n--- Loading Source Data from Parquet Files ---")
-        mock_patent_df = pd.read_parquet(PATENTS_FILE)
-        mock_funding_df = pd.read_parquet(FUNDING_FILE)
+        print(f"Saved research data to {RESEARCH_FILE}")
+
+    elif research_file_exists:
+        print(f"\n--- Loading Research Data from {RESEARCH_FILE} ---")
         research_df = pd.read_parquet(RESEARCH_FILE)
-        print("Source data loaded from Parquet files.")
+        print(f"Loaded {len(research_df)} research records.")
+    else: # Fallback
+        print("Warning: Research data file does not exist and force_collect is false. Using empty DataFrame.")
+        research_df = pd.DataFrame(columns=['paper_id', 'title', 'authors', 'abstract', 'categories', 'published_date', 'pdf_url', 'source', 'citation_count'])
+
 
     print("\n--- Generating Features for Demo Model Training ---")
     feature_eng = FeatureEngineer(config=feature_config)
 
-    patent_features_df = feature_eng.create_patent_features(mock_patent_df) if not mock_patent_df.empty else pd.DataFrame()
+    patent_features_df = feature_eng.create_patent_features(patent_df) if not patent_df.empty else pd.DataFrame()
     print(f"Patent features created. Columns: {patent_features_df.columns.tolist() if not patent_features_df.empty else 'N/A'}")
     funding_features_df = feature_eng.create_funding_features(mock_funding_df) if not mock_funding_df.empty else pd.DataFrame()
     print(f"Funding features created. Columns: {funding_features_df.columns.tolist() if not funding_features_df.empty else 'N/A'}")
@@ -230,70 +304,181 @@ if __name__ == '__main__':
 
     predictor = InnovationPredictor(random_state=123)
 
-    num_target_periods = len(mock_patent_df)
-    dates_for_targets = mock_patent_df.index
-    target_sector_list = []
-    if cli_sectors:
-        base_len_target = num_target_periods // len(cli_sectors)
-        remainder_target = num_target_periods % len(cli_sectors)
-        for i, sector in enumerate(cli_sectors):
-            sector_len = base_len_target + (1 if i < remainder_target else 0)
-            target_sector_list.extend([sector] * sector_len)
+    # Determine target periods and index based on available data, prioritizing patents if available.
+    # This section needs to be robust to potentially empty DataFrames from data collection.
+    if not patent_df.empty and 'filing_date' in patent_df.columns:
+        # Assuming filing_date is already datetime or can be converted
+        try:
+            patent_df['filing_date'] = pd.to_datetime(patent_df['filing_date'])
+            dates_for_targets = pd.to_datetime(patent_df['filing_date']).dt.to_period('M').unique().to_timestamp()
+            num_target_periods = len(dates_for_targets)
+            # Align mock_targets_df index with patent data if possible
+            # If patent_df drives the main index for model
+            target_base_index = dates_for_targets
+            if target_base_index.empty and not mock_funding_df.empty: # Fallback to funding index
+                 target_base_index = mock_funding_df.index
+            elif target_base_index.empty: # Fallback to generating some dates if all else fails
+                 target_base_index = pd.date_range(start=cli_start_date, end=cli_end_date, freq='MS')
+            num_target_periods = len(target_base_index)
+
+        except Exception as e:
+            print(f"Error processing patent dates for target alignment: {e}. Falling back to default date range.")
+            target_base_index = pd.date_range(start=cli_start_date, end=cli_end_date, freq='MS')
+            num_target_periods = len(target_base_index)
+    elif not mock_funding_df.empty: # Fallback to funding data index
+        target_base_index = mock_funding_df.index
+        num_target_periods = len(target_base_index)
+    else: # Absolute fallback if no data has a usable date index
+        print("Warning: No primary data source with date index for target generation. Using CLI date range.")
+        target_base_index = pd.date_range(start=cli_start_date, end=cli_end_date, freq='MS')
+        num_target_periods = len(target_base_index)
+
+
+    if num_target_periods <= 0:
+        print("Error: Number of target periods is zero or negative. Cannot proceed with target generation or model training.")
+        # Optionally, create empty historical_data_df and skip training/prediction
+        historical_data_df = pd.DataFrame()
     else:
-        target_sector_list = ['DefaultSector'] * num_target_periods
-    mock_targets_df = pd.DataFrame({'target_growth_6m': np.random.randn(num_target_periods) * 0.1, 'sector_label': target_sector_list}, index=dates_for_targets)
-    print("Mock targets data prepared in memory.")
+        target_sector_list = []
+        # Use sector_label from patent_df if available and aligned, otherwise generate mock
+        if not patent_df.empty and 'sector_label' in patent_df.columns and not patent_df['sector_label'].isnull().all() and len(patent_df) == num_target_periods :
+             # This assumes patent_df is already monthly aggregated or can be mapped to target_base_index
+             # For simplicity, if patent_df is the source of target_base_index, we can try to use its sector_label
+             # This part might need more sophisticated alignment logic if patent_df is not 1-to-1 with target_base_index
+             if pd.Series(target_base_index.sort_values()).equals(pd.Series(pd.to_datetime(patent_df['filing_date']).dt.to_period('M').unique().to_timestamp().sort_values())):
+                 monthly_patent_sectors = patent_df.set_index(pd.to_datetime(patent_df['filing_date']))
+                 monthly_patent_sectors = monthly_patent_sectors.resample('MS')['sector_label'].first() # Or some other aggregation
+                 target_sector_list = monthly_patent_sectors.reindex(target_base_index, method='ffill').fillna("DefaultSector").tolist()
 
-    print("\n--- Combining Features for Demo Predictor ---")
-    aligned_idx = mock_targets_df.index
-    data_dict_for_predictor = {'sector_label': mock_targets_df['sector_label'].values }
-
-    def add_features_to_data_dict(df_features, suffix, data_dict, common_idx):
-        if df_features is not None and not df_features.empty:
-            if len(df_features) == 1:
-                for col in df_features.columns: data_dict[f"{col}{suffix}"] = np.repeat(df_features[col].iloc[0], len(common_idx))
+        if not target_sector_list or len(target_sector_list) != num_target_periods : # Fallback to cli_sectors based mock distribution
+            if cli_sectors:
+                base_len_target = num_target_periods // len(cli_sectors)
+                remainder_target = num_target_periods % len(cli_sectors)
+                target_sector_list_gen = []
+                for i, sector in enumerate(cli_sectors):
+                    sector_len = base_len_target + (1 if i < remainder_target else 0)
+                    target_sector_list_gen.extend([sector] * sector_len)
+                target_sector_list = target_sector_list_gen[:num_target_periods] # Ensure exact length
             else:
-                df_aligned = df_features.reindex(common_idx).fillna(method='ffill').fillna(method='bfill')
-                for col in df_aligned.columns:
-                    if col not in ['sector_label', 'target_growth_6m', 'observation_date', 'date', 'published_date', 'filing_date', 'patent_id', 'title', 'assignee', 'inventors', 'tech_class', 'abstract', 'source', 'paper_id', 'authors', 'categories', 'pdf_url', 'company_uuid', 'company_name', 'amount_usd', 'currency', 'stage', 'abstractText', 'patentApplicationNumber']: # Avoid re-adding raw source columns
-                         data_dict[f"{col}{suffix}"] = df_aligned[col].values
-        else: print(f"Warning: {suffix.replace('_','')} features DataFrame is empty or None. No features added.")
+                target_sector_list = ['DefaultSector'] * num_target_periods
 
-    add_features_to_data_dict(patent_features_df, "_patent", data_dict_for_predictor, aligned_idx)
-    add_features_to_data_dict(funding_features_df, "_funding", data_dict_for_predictor, aligned_idx)
-    add_features_to_data_dict(research_features_df, "_research", data_dict_for_predictor, aligned_idx)
-    data_dict_for_predictor['target_growth_6m'] = mock_targets_df['target_growth_6m'].values
+        mock_targets_df = pd.DataFrame({
+            'target_growth_6m': np.random.randn(num_target_periods) * 0.1,
+            'sector_label': target_sector_list
+        }, index=target_base_index)
+        print("Mock targets data prepared in memory.")
 
-    historical_data_df = pd.DataFrame(data_dict_for_predictor, index=aligned_idx)
-    historical_data_df = historical_data_df.fillna(historical_data_df.median(numeric_only=True))
-    historical_data_df = historical_data_df.dropna(subset=['target_growth_6m'])
-    feature_cols_for_dropna = [col for col in historical_data_df.columns if col not in ['sector_label', 'target_growth_6m']]
-    if feature_cols_for_dropna: historical_data_df = historical_data_df.dropna(subset=feature_cols_for_dropna, how='all')
+        print("\n--- Combining Features for Demo Predictor ---")
+        aligned_idx = mock_targets_df.index # This is now more robustly defined
+        data_dict_for_predictor = {'sector_label': mock_targets_df['sector_label'].values }
+
+        def add_features_to_data_dict(df_features, suffix, data_dict, common_idx):
+            if df_features is not None and not df_features.empty:
+                # Convert index to datetime if it's not, for proper alignment
+                if not isinstance(df_features.index, pd.DatetimeIndex):
+                    try:
+                        # Attempt to convert index, assuming it might be date-like strings or periods
+                        # This is a common point of failure if indices are not compatible
+                        # For patent_df, 'filing_date' is the key date column.
+                        date_col_candidate = None
+                        if 'filing_date' in df_features.columns: date_col_candidate = 'filing_date'
+                        elif 'publication_date' in df_features.columns: date_col_candidate = 'publication_date'
+                        elif 'date' in df_features.columns: date_col_candidate = 'date'
+
+                        if date_col_candidate and pd.api.types.is_datetime64_any_dtype(df_features[date_col_candidate]):
+                             df_features_indexed = df_features.set_index(pd.to_datetime(df_features[date_col_candidate]))
+                        elif isinstance(df_features.index, (pd.PeriodIndex, pd.RangeIndex)) or df_features.index.dtype == 'int64':
+                             # If index is PeriodIndex or simple RangeIndex, try to convert to DatetimeIndex if appropriate, or use as is if not time-series like
+                             # This part needs careful handling based on what FeatureEngineer outputs
+                             # For now, assume FeatureEngineer might return monthly data indexed by first day of month
+                             if isinstance(df_features.index, pd.PeriodIndex):
+                                 df_features_indexed = df_features.set_index(df_features.index.to_timestamp())
+                             else: # If RangeIndex or other, cannot directly align with common_idx (DatetimeIndex)
+                                 print(f"Warning: {suffix.replace('_','')} features DataFrame has a non-DatetimeIndex type ({df_features.index.dtype}). Cannot align by date. Will attempt to use first row if only one record.")
+                                 if len(df_features) == 1: # If only one row (e.g. aggregated features)
+                                     for col in df_features.columns: data_dict[f"{col}{suffix}"] = np.repeat(df_features[col].iloc[0], len(common_idx))
+                                     return # Early exit for this case
+                                 else: # Cannot meaningfully align multiple rows of non-datetime indexed data
+                                     print(f"Skipping non-datetime indexed {suffix.replace('_','')} features as alignment is ambiguous for multiple rows.")
+                                     return
+                        else: # Fallback if index is not datetime and no clear date column
+                            print(f"Warning: {suffix.replace('_','')} features DataFrame does not have a DatetimeIndex. Alignment might be incorrect or fail.")
+                            df_features_indexed = df_features # Proceed with original index, may cause issues
+                    except Exception as e_idx:
+                        print(f"Error processing index for {suffix} features: {e_idx}. Using original index.")
+                        df_features_indexed = df_features
+                else:
+                     df_features_indexed = df_features
+
+                if isinstance(df_features_indexed.index, pd.DatetimeIndex):
+                    df_aligned = df_features_indexed.reindex(common_idx, method='ffill').fillna(method='bfill')
+                    for col in df_aligned.columns:
+                        if col not in ['sector_label', 'target_growth_6m', 'observation_date', 'date', 'published_date', 'filing_date', 'patent_id', 'title', 'assignee', 'inventors', 'tech_class', 'abstract', 'source', 'paper_id', 'authors', 'categories', 'pdf_url', 'company_uuid', 'company_name', 'amount_usd', 'currency', 'stage', 'abstractText', 'patentApplicationNumber', 'cpc']: # Avoid re-adding raw source columns
+                             data_dict[f"{col}{suffix}"] = df_aligned[col].values
+                elif len(df_features_indexed) == 1: # Handle single row aggregated features again (if index wasn't datetime)
+                    for col in df_features_indexed.columns: data_dict[f"{col}{suffix}"] = np.repeat(df_features_indexed[col].iloc[0], len(common_idx))
+                else:
+                     print(f"Warning: Could not align {suffix.replace('_','')} features due to incompatible index. Features not added.")
+            else: print(f"Warning: {suffix.replace('_','')} features DataFrame is empty or None. No features added.")
+
+        add_features_to_data_dict(patent_features_df, "_patent", data_dict_for_predictor, aligned_idx)
+        add_features_to_data_dict(funding_features_df, "_funding", data_dict_for_predictor, aligned_idx)
+        add_features_to_data_dict(research_features_df, "_research", data_dict_for_predictor, aligned_idx)
+        data_dict_for_predictor['target_growth_6m'] = mock_targets_df['target_growth_6m'].reindex(aligned_idx).values # Ensure target is also aligned
+
+        historical_data_df = pd.DataFrame(data_dict_for_predictor, index=aligned_idx)
+        # Fill NaNs more robustly: fill with median for numeric, and 'Unknown' or mode for categorical
+        for col in historical_data_df.columns:
+            if pd.api.types.is_numeric_dtype(historical_data_df[col]):
+                historical_data_df[col] = historical_data_df[col].fillna(historical_data_df[col].median())
+            else: # Handling for object/categorical columns if any were included by mistake
+                historical_data_df[col] = historical_data_df[col].fillna('Unknown') # Or mode: historical_data_df[col].mode()[0] if not empty
+
+        historical_data_df = historical_data_df.dropna(subset=['target_growth_6m']) # Critical for training
+        feature_cols_for_dropna = [col for col in historical_data_df.columns if col not in ['sector_label', 'target_growth_6m']]
+        if feature_cols_for_dropna: historical_data_df = historical_data_df.dropna(subset=feature_cols_for_dropna, how='all', axis=0)
+
 
     X_train_demo, y_train_demo, X_test_demo, y_test_demo = pd.DataFrame(), pd.Series(dtype='float64'), pd.DataFrame(), pd.Series(dtype='float64')
     trained_models = {}
-    if historical_data_df.empty:
+    if historical_data_df.empty: # Check if historical_data_df is empty
         print("Error: historical_data_df is empty. Model training demo cannot proceed.")
     else:
         print(f"Combined historical_data_df created. Shape: {historical_data_df.shape}")
+        # Ensure 'sector_label' is not all NaN if it's critical for training
+        if 'sector_label' in historical_data_df.columns and historical_data_df['sector_label'].isnull().all():
+            print("Warning: 'sector_label' in historical_data_df is all NaN. Filling with 'DefaultSector'.")
+            historical_data_df['sector_label'] = historical_data_df['sector_label'].fillna('DefaultSector')
+
         train_size = int(len(historical_data_df) * 0.7)
-        if train_size == 0 and len(historical_data_df) > 0: train_size = 1
+        if train_size == 0 and len(historical_data_df) > 0: train_size = 1 # Ensure at least one sample for training if data exists
 
-        X_train_demo = historical_data_df.iloc[:train_size].drop(columns=['target_growth_6m'])
-        y_train_demo = historical_data_df.iloc[:train_size]['target_growth_6m']
-        X_test_demo = historical_data_df.iloc[train_size:].drop(columns=['target_growth_6m'])
-        y_test_demo = historical_data_df.iloc[train_size:]['target_growth_6m']
+        if train_size > 0 :
+            X_train_demo = historical_data_df.iloc[:train_size].drop(columns=['target_growth_6m'])
+            y_train_demo = historical_data_df.iloc[:train_size]['target_growth_6m']
+            X_test_demo = historical_data_df.iloc[train_size:].drop(columns=['target_growth_6m'])
+            y_test_demo = historical_data_df.iloc[train_size:]['target_growth_6m'] # This should be target_growth_6m from test set
 
-        if X_train_demo.empty or y_train_demo.empty: print("Warning: Training data is empty after splitting.")
-        if X_test_demo.empty or y_test_demo.empty: print("Warning: Test data is empty after splitting.")
+            if X_train_demo.empty or y_train_demo.empty: print("Warning: Training data is empty after splitting.")
+            if X_test_demo.empty or y_test_demo.empty: print("Warning: Test data is empty after splitting (or no test data).")
+        else:
+            print("Not enough data to create a training set.")
+
 
     emerging_techs, investment_ops, sector_forecasts = [], [], {}
     if not X_train_demo.empty and not y_train_demo.empty:
         print(f"X_train_demo shape: {X_train_demo.shape}, y_train_demo shape: {y_train_demo.shape}")
-        print(f"X_train_demo columns: {X_train_demo.columns.tolist()}")
-        print(f"Sample sector_label in X_train_demo: {X_train_demo['sector_label'].value_counts(dropna=False)}")
+        if 'sector_label' in X_train_demo.columns:
+             print(f"Sample sector_label in X_train_demo: {X_train_demo['sector_label'].value_counts(dropna=False)}")
+        else: print("Warning: 'sector_label' not in X_train_demo.")
+
 
         print("\n--- Starting Model Training & Validation ---")
+        # Ensure 'sector_label' exists before passing to train_sector_models
+        if 'sector_label' not in X_train_demo.columns:
+            print("Error: 'sector_label' is missing from X_train_demo. Cannot train sector models. Adding default.")
+            X_train_demo['sector_label'] = 'DefaultSector' # Add a default if missing
+
         trained_models = predictor.train_sector_models(X_train_demo, y_train_demo, sectors_column='sector_label')
         print("Sector models trained.")
         if not X_test_demo.empty and not y_test_demo.empty:

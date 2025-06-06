@@ -9,7 +9,8 @@ import arxiv
 # but keeping it here if it's intended for WIPO/EPO extensions.
 import feedparser
 import os
-from innovation_system.config.settings import USPTO_API_KEY, CRUNCHBASE_API_KEY, PUBMED_API_KEY
+from innovation_system.config.settings import USPTO_API_KEY, CRUNCHBASE_API_KEY, PUBMED_API_KEY, \
+    EPO_OPS_CONSUMER_KEY, EPO_OPS_CONSUMER_SECRET, EPO_OPS_BASE_URL, EPO_OPS_ACCESS_TOKEN_URL
 
 class PatentDataCollector:
     def __init__(self):
@@ -297,3 +298,224 @@ class ResearchDataCollector:
                 print(f"Invalid or incomplete paper data: {paper.get('paper_id')}")
         print(f"Validated {len(valid_papers)}/{len(papers)} research papers")
         return valid_papers
+
+
+class LivePatentDataCollector:
+    def __init__(self):
+        self.consumer_key = EPO_OPS_CONSUMER_KEY
+        self.consumer_secret = EPO_OPS_CONSUMER_SECRET
+        self.base_url = EPO_OPS_BASE_URL
+        self.access_token_url = EPO_OPS_ACCESS_TOKEN_URL
+        self.access_token = None
+        self.token_expiry_time = None
+
+    def _get_access_token(self):
+        """
+        Retrieves a new EPO OPS access token if the current one is invalid or expired.
+        """
+        if self.access_token and self.token_expiry_time and datetime.now() < self.token_expiry_time:
+            return self.access_token
+
+        headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+        data = {'grant_type': 'client_credentials'}
+        auth = (self.consumer_key, self.consumer_secret)
+
+        try:
+            response = requests.post(self.access_token_url, headers=headers, data=data, auth=auth, timeout=30)
+            response.raise_for_status()
+            token_data = response.json()
+            self.access_token = token_data['access_token']
+            expires_in = int(token_data['expires_in'])
+            self.token_expiry_time = datetime.now() + timedelta(seconds=expires_in - 60) # 60s buffer
+            print("Successfully obtained new EPO OPS access token.")
+            return self.access_token
+        except requests.RequestException as e:
+            print(f"Error obtaining EPO OPS access token: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"Response content: {e.response.text}")
+            self.access_token = None
+            self.token_expiry_time = None
+            return None
+        except KeyError as e:
+            print(f"Error parsing token response: Missing key {e}. Response: {response.text}")
+            self.access_token = None
+            self.token_expiry_time = None
+            return None
+
+    def _construct_cql_query(self, search_query, start_date_str=None, end_date_str=None):
+        """
+        Constructs the CQL query string for EPO OPS.
+        Dates should be in 'YYYYMMDD' or 'YYYY-MM-DD' format.
+        """
+        cql_parts = [f'txt="{search_query}"']
+        if start_date_str:
+            start_date_formatted = start_date_str.replace('-', '')
+            cql_parts.append(f'pd>="{start_date_formatted}"')
+        if end_date_str:
+            end_date_formatted = end_date_str.replace('-', '')
+            cql_parts.append(f'pd<="{end_date_formatted}"')
+        return " AND ".join(cql_parts)
+
+    def collect_epo_patents(self, search_query, start_date_str=None, end_date_str=None):
+        """
+        Collects patent data from EPO OPS using a search query and optional date range.
+        """
+        token = self._get_access_token()
+        if not token:
+            print("Cannot collect EPO patents without an access token.")
+            return []
+
+        cql_query = self._construct_cql_query(search_query, start_date_str, end_date_str)
+        headers = {'Authorization': f'Bearer {token}'}
+        # Using /search to get biblio data by default. Range header for pagination if needed later.
+        # For now, default range (first 25 results) is fine for initial testing.
+        search_url = f"{self.base_url}/published-data/search/biblio"
+        params = {'q': cql_query}
+
+        print(f"Collecting EPO patents with query: {cql_query}")
+        try:
+            response = requests.get(search_url, headers=headers, params=params, timeout=60)
+            response.raise_for_status()
+
+            # Check content type, OPS usually returns XML
+            content_type = response.headers.get('Content-Type', '')
+            if 'application/xml' not in content_type and 'text/xml' not in content_type:
+                print(f"Unexpected content type: {content_type}. Expected XML.")
+                print(f"Response text: {response.text[:500]}") # Print first 500 chars
+                return []
+
+            parsed_patents = self._parse_epo_response(response.text)
+            validated_patents = self._validate_patent_data(parsed_patents)
+            if validated_patents:
+                self._save_patent_data_to_parquet(validated_patents)
+            return validated_patents
+        except requests.RequestException as e:
+            print(f"EPO OPS API error during patent collection: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"Response status: {e.response.status_code}")
+                print(f"Response text: {e.response.text[:500]}") # Print first 500 chars of error response
+            return []
+        except ET.ParseError as e:
+            print(f"Error parsing EPO OPS XML response: {e}")
+            print(f"Response text: {response.text[:1000]}") # Print first 1000 chars of problematic XML
+            return []
+
+
+    def _parse_epo_response(self, response_xml_text):
+        """
+        Parses the XML response from EPO OPS.
+        Initial focus: Extract total number of results and basic fields.
+        """
+        patents = []
+        try:
+            root = ET.fromstring(response_xml_text)
+
+            # OPS XML namespace dictionary
+            # Common namespaces, may need adjustment based on actual response
+            ns = {
+                'ops': 'http://ops.epo.org',
+                'epo': 'http://www.epo.org/exchange',
+                'xlink': 'http://www.w3.org/1999/xlink'
+            }
+
+            # Find total results
+            # Path might be ops:biblio-search/ops:search-result[@total-result-count]
+            # or ops:world-patent-data/ops:biblio-search/ops:search-result[@total-result-count]
+            search_result_element = root.find('.//ops:biblio-search/ops:search-result', ns)
+            if search_result_element is not None:
+                total_results = search_result_element.get('total-result-count')
+                print(f"EPO OPS: Found {total_results} total results for the query.")
+            else:
+                print("EPO OPS: Could not find total-result-count in response.")
+                # Check for common error messages or unexpected structure
+                if root.tag == "{http://ops.epo.org}fault": # Check if root is a fault message
+                    fault_code = root.findtext('.//ops:code', namespaces=ns)
+                    fault_message = root.findtext('.//ops:message', namespaces=ns)
+                    print(f"EPO OPS API Error Response: Code {fault_code}, Message: {fault_message}")
+                    return []
+
+
+            # Iterate through exchange-document elements
+            # Path: ops:world-patent-data/ops:biblio-search/ops:search-result/exchange-documents/exchange-document
+            for doc in root.findall('.//ops:exchange-document', ns): # Adjusted path based on typical OPS structure
+                try:
+                    doc_number_element = doc.find('.//epo:publication-reference/epo:document-id[@document-id-type="epodoc"]/epo:doc-number', ns)
+                    publication_number = doc_number_element.text if doc_number_element is not None else None
+
+                    invention_title_element = doc.find('.//epo:invention-title[@lang="en"]', ns)
+                    if invention_title_element is None: # Fallback to any language if English not found
+                        invention_title_element = doc.find('.//epo:invention-title', ns)
+                    title = invention_title_element.text if invention_title_element is not None else "N/A"
+
+                    publication_date_element = doc.find('.//epo:publication-reference/epo:document-id[@document-id-type="epodoc"]/epo:date', ns)
+                    publication_date = publication_date_element.text if publication_date_element is not None else None # YYYYMMDD format
+
+                    patents.append({
+                        'patent_id': publication_number, # Using publication number as patent_id
+                        'title': title,
+                        'publication_date': publication_date, # Keep as string, validation will handle format
+                        'source': 'EPO'
+                        # Add more fields as parsing logic develops
+                    })
+                except Exception as e_doc:
+                    print(f"Error parsing individual EPO patent document: {e_doc}")
+                    # Continue parsing other documents
+                    continue
+
+            if not patents and search_result_element is not None and total_results == "0":
+                print("EPO OPS: Query successful, but no patents found matching the criteria.")
+            elif not patents and search_result_element is None:
+                 print("EPO OPS: No patent documents found in response, and search-result element was missing.")
+
+
+        except ET.ParseError as e:
+            print(f"XML parsing error in _parse_epo_response: {e}")
+            print(f"Response snippet (first 1000 chars): {response_xml_text[:1000]}")
+            return [] # Return empty list if major parsing error
+
+        print(f"EPO OPS: Parsed {len(patents)} patent documents from response.")
+        return patents
+
+    def _validate_patent_data(self, patents):
+        """
+        Validates patent data, adapted for EPO fields.
+        """
+        valid_patents = []
+        required_fields = ['patent_id', 'title', 'publication_date']
+        for patent in patents:
+            missing_fields = [field for field in required_fields if not patent.get(field)]
+            if not missing_fields:
+                # Validate publication_date format (YYYYMMDD from EPO)
+                try:
+                    if patent['publication_date']: # Ensure it's not None
+                        datetime.strptime(patent['publication_date'], '%Y%m%d')
+                    valid_patents.append(patent)
+                except ValueError:
+                    print(f"Invalid publication date format for EPO patent ID {patent.get('patent_id')}: {patent.get('publication_date')}. Expected YYYYMMDD.")
+            else:
+                print(f"Missing critical data for EPO patent ID {patent.get('patent_id', 'Unknown')}: {', '.join(missing_fields)}")
+
+        print(f"Validated {len(valid_patents)}/{len(patents)} EPO patents.")
+        return valid_patents
+
+    def _save_patent_data_to_parquet(self, patents, filepath="data/raw/patents_epo.parquet"):
+        """
+        Saves the list of patent dictionaries to a Parquet file.
+        """
+        if not patents:
+            print("No EPO patent data to save.")
+            return
+
+        df = pd.DataFrame(patents)
+        if df.empty:
+            print("DataFrame is empty, no EPO patent data to save.")
+            return
+
+        try:
+            output_dir = os.path.dirname(filepath)
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir, exist_ok=True)
+            df.to_parquet(filepath, index=False)
+            print(f"Successfully saved {len(patents)} EPO patents to {filepath}")
+        except Exception as e:
+            print(f"Error saving EPO patent data to Parquet file {filepath}: {e}")
