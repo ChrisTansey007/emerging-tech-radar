@@ -60,4 +60,4 @@ jobs:
         # So, we should be able to run pytest directly on that subdirectory.
         coverage run -m pytest innovation_system/tests/
         coverage report -m --fail-under=60 # Adjusted coverage threshold example
-```
+
