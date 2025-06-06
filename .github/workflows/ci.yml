@@ -27,6 +27,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r innovation_system/requirements.txt
+        pip install -e . # Add this line
         # Optional: Pre-download NLTK resources if tests might need them and can't download in CI
         # This assumes tests that use NLTK are robust enough to handle missing resources or you pre-populate
         # For a CI environment, explicitly downloading is often better if tests rely on them:
