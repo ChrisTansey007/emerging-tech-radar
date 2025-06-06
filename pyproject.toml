@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "innovation_system"
+version = "0.1.0"
+description = "A system for innovation."
+readme = "README.md"
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License", # Assuming MIT, adjust if different
+    "Operating System :: OS Independent",
+]
+# Add dependencies here if they are not already in requirements.txt
+# or if you want to specify them for the package build.
+# For now, we'll rely on requirements.txt for CI.
+# dependencies = [
+#     "requests",
+#     "pandas",
+#     # etc.
+# ]
+
+[project.urls]
+"Homepage" = "https://github.com/yourusername/yourrepository" # TODO: Update with actual URL
+"Bug Tracker" = "https://github.com/yourusername/yourrepository/issues" # TODO: Update with actual URL
+
+# Optional: If you have console scripts
+# [project.scripts]
+# script-name = "innovation_system.main:run"
