@@ -8,7 +8,7 @@ Follow these steps to get the Innovation Prediction System up and running quickl
 
 1.  **Clone the Repository:**
     ```bash
-    git clone https://github.com/your-username/EmergingTechRadar.git # Replace with actual repo URL
+    git clone https://github.com/ChrisTansey007/emerging-tech-radar.git
     cd EmergingTechRadar
     ```
 
@@ -148,11 +148,10 @@ This project uses [GitHub Actions](https://github.com/features/actions) for Cont
 
 This helps to maintain code quality, ensure tests pass, and catch issues early in the development process.
 
-[![Python CI Status](https://github.com/YOUR_USERNAME/EmergingTechRadar/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/EmergingTechRadar/actions/workflows/ci.yml)
-
-*(Note: Please replace `YOUR_USERNAME/EmergingTechRadar` in the badge URL above with the actual path to this repository after the CI workflow has run at least once for the badge to be active.)*
+[![Python CI Status](https://github.com/ChrisTansey007/emerging-tech-radar/actions/workflows/ci.yml/badge.svg)](https://github.com/ChrisTansey007/emerging-tech-radar/actions/workflows/ci.yml)
 
 ## Technologies
+This section is currently under development and will be populated with information about tracked technologies soon.
 
 This section will list the emerging technologies being tracked. Each technology will have its own page with detailed information, including:
 
@@ -169,4 +168,4 @@ Contributions are welcome! If you have a technology you'd like to see added to t
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License.

@@ -13,25 +13,19 @@ engineers features, trains predictive models, and generates forecasts.
 - \`model_development/\`: Modules for training and validating predictive models.
 - \`monitoring/\`: Modules for system monitoring, data drift detection, and model performance evaluation.
 - \`prediction/\`: Modules for generating forecasts and identifying emerging technologies.
-- \`tests/\`: Unit and integration tests (to be added).
+- \`tests/\`: Contains unit and integration tests (e.g., using Pytest).
 - \`uncertainty_handling/\`: Modules for managing and communicating prediction uncertainty.
-- \`utils/\`: Utility functions (if any).
+- \`utils/\`: Placeholder for utility functions.
 
 ## Setup
 
-1.  **Clone the repository:**
-    \`\`\`bash
-    git clone <repository_url>
-    cd innovation_prediction_system
-    \`\`\`
-
-2.  **Create a virtual environment (recommended):**
+1.  **Create a virtual environment (recommended):**
     \`\`\`bash
     python -m venv venv
     source venv/bin/activate  # On Windows use \`venv\Scripts\activate\`
     \`\`\`
 
-3.  **Install dependencies:**
+2.  **Install dependencies:**
     \`\`\`bash
     pip install -r requirements.txt
     \`\`\`
@@ -42,7 +36,7 @@ engineers features, trains predictive models, and generates forecasts.
         nltk.download('stopwords')
         \`\`\`
 
-4.  **Set Up API Keys (Optional for Mock Data):**
+3.  **Set Up API Keys (Optional for Mock Data):**
     - This system is designed to use API keys for live data collection, managed via a `.env` file at the project root (e.g., `EmergingTechRadar/.env` if your project is in a directory named `EmergingTechRadar`).
     - Create a file named `.env` in the **project root directory**.
     - Add your API keys to this `.env` file. Example format:
