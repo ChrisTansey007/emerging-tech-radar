@@ -49,7 +49,15 @@ feature_config = {
         'collaboration': 0.20, 'novelty': 0.30
     },
     'normalization_method': 'z_score',
-    'missing_value_strategy': 'median_imputation'
+    'missing_value_strategy': 'median_imputation',
+    'emerging_tech_keywords': [
+        'artificial intelligence', 'machine learning', 'deep learning',
+        'quantum computing', 'quantum supremacy',
+        'blockchain', 'cryptocurrency', 'smart contract', 'nft',
+        'biotechnology', 'gene editing', 'crispr', 'synthetic biology',
+        'renewable energy', 'solar power', 'wind power', 'battery storage', ' sostenible', ' जलवायु',
+        'nanotechnology', 'carbon nanotubes'
+    ],
 }
 
 model_config = {

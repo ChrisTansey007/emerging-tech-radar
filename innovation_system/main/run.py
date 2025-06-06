@@ -139,11 +139,29 @@ if __name__ == '__main__':
     # research_features = feature_eng.create_research_features(ai_research_df) if not ai_research_df.empty else pd.DataFrame()
     # print("Patent Features (sample): ", patent_features.head())
 
+    # --- Phase 2.5: Generate Features for Demo Model Training ---
+    # This section now uses the data loaded or generated above (mock_patent_df, mock_funding_df, research_df)
+    # to generate features that will be used by the predictor demo.
+    print("\n--- Generating Features for Demo Model Training ---")
+    feature_eng = FeatureEngineer(config=feature_config) # Pass feature_config
+
+    # Create features using the (potentially live) research_df and mock patent/funding data
+    patent_features_df = feature_eng.create_patent_features(mock_patent_df.drop(columns=['sector_label'], errors='ignore'))
+    print(f"Patent features created. Columns: {patent_features_df.columns.tolist()}")
+    funding_features_df = feature_eng.create_funding_features(mock_funding_df.drop(columns=['sector_label'], errors='ignore'))
+    print(f"Funding features created. Columns: {funding_features_df.columns.tolist()}")
+
+    # Use the research_df (which could be live or mock)
+    # The research_df from live collection doesn't have 'sector_label'. Mock one also doesn't add it at generation.
+    research_features_df = feature_eng.create_research_features(research_df)
+    print(f"Research features created (including NLP). Columns: {research_features_df.columns.tolist()}")
+
+
     # --- Phase 3: Predictive Model Development (Conceptual) ---
     # print("\n--- Model Training & Prediction (Conceptual) ---") # Original generic print
     predictor = InnovationPredictor(random_state=123)
 
-    print("\n--- Starting Data Simulation/Loading and Feature Preparation ---")
+    # print("\n--- Starting Data Simulation/Loading and Feature Preparation ---") # This message is now part of Phase 2.5
 
     # Check if files exist
     patents_file_exists = os.path.exists(PATENTS_FILE)
@@ -280,56 +298,133 @@ if __name__ == '__main__':
         'target_growth_6m': np.random.randn(num_target_periods) * 0.1,
         'sector_label': target_sector_list
     }, index=dates_for_targets)
-    print("Mock targets data prepared in memory.")
+    print("Mock targets data prepared in memory.") # This is from the target generation after data loading/generation
 
+    # --- Create historical_data_df for predictor.train_sector_models demo ---
+    # This combines features from different sources into a single DataFrame for the demo predictor.
+    # The predictor.prepare_training_data method will then be called on these combined features.
 
-    # Call prepare_training_data
-    # Pass DataFrames without 'sector_label' for features, as predictor doesn't handle it internally during alignment.
-    # Target DF should only contain the target column.
-    print(f"Preparing training data for sectors: {cli_sectors}...")
+    print("\n--- Combining Features for Demo Predictor ---")
 
-    # Ensure research_df is passed to prepare_training_data, not mock_research_df if it was overwritten
-    # Also, predictor expects feature dataframes without sector_label.
-    # The live research_df does not have 'sector_label' yet.
-    # The mock patent/funding dfs have it, so it's dropped before passing.
+    # Use the index from mock_targets_df as the reference for alignment and length
+    # This assumes mock_targets_df's index (dates_for_targets) is derived from the primary data (mock_patent_df)
+    aligned_idx = mock_targets_df.index
 
-    X_prepared, y_prepared = predictor.prepare_training_data(
-        mock_patent_df.drop(columns=['sector_label'], errors='ignore'), # errors='ignore' if sector_label might not exist
-        mock_funding_df.drop(columns=['sector_label'], errors='ignore'),
-        research_df.drop(columns=['sector_label'], errors='ignore'), # Use the actual research_df (live or mock)
-        mock_targets_df[['target_growth_6m']]
-    )
-    print("Training data prepared.")
+    data_dict_for_predictor = {
+        # 'observation_date' will be set as index later
+        'sector_label': mock_targets_df['sector_label'].values
+    }
 
-    if X_prepared.empty or y_prepared.empty:
-        print("Error: X_prepared or y_prepared is empty after data preparation. Exiting.")
-        # Exit or handle error appropriately
-    else:
-        # Re-integrate Sector Label and Split Data
-        # Align sector labels with the index of X_prepared (which might have changed due to alignment and NaN handling)
-        X_prepared['sector_label'] = mock_targets_df.loc[X_prepared.index, 'sector_label']
-
-        # Handle any NaNs in sector_label that might arise if X_prepared.index has dates not in mock_targets_df
-        # (though inner merge in _temporal_alignment on target should prevent this if target_df is source of truth for dates)
-        # or if some original sector labels were NaN.
-        X_prepared = X_prepared.dropna(subset=['sector_label'])
-        y_prepared = y_prepared.loc[X_prepared.index] # Ensure y aligns with X after potential dropna
-
-        if X_prepared.empty:
-            print("Error: X_prepared is empty after re-integrating sector_label and NaN handling. Exiting.")
+    # Helper to add features to the dictionary, aligning to the common index
+    def add_features_to_data_dict(df_features, suffix, data_dict, common_idx):
+        if df_features is not None and not df_features.empty:
+            # Feature DFs from FeatureEngineer are single-row DataFrames with aggregated features.
+            # We need to repeat these values across all timestamps in common_idx for the demo.
+            # This is a simplification for the demo; real scenarios might involve time-series features.
+            if len(df_features) == 1: # Aggregated features
+                for col in df_features.columns:
+                    data_dict[f"{col}{suffix}"] = np.repeat(df_features[col].iloc[0], len(common_idx))
+            else: # If features were time-series (not the case for current FeatureEngineer output)
+                df_aligned = df_features.reindex(common_idx).fillna(method='ffill').fillna(method='bfill')
+                for col in df_aligned.columns:
+                    data_dict[f"{col}{suffix}"] = df_aligned[col].values
         else:
-            train_size = int(len(X_prepared) * 0.7)
-            X_train_demo = X_prepared.iloc[:train_size]
-            y_train_demo = y_prepared.iloc[:train_size]
-            X_test_demo = X_prepared.iloc[train_size:]
-            y_test_demo = y_prepared.iloc[train_size:]
+            print(f"Warning: {suffix.replace('_','')} features DataFrame is empty or None. No features added.")
 
-            print(f"X_train_demo shape: {X_train_demo.shape}, y_train_demo shape: {y_train_demo.shape}")
-            print(f"X_test_demo shape: {X_test_demo.shape}, y_test_demo shape: {y_test_demo.shape}")
-            print(f"X_train_demo columns: {X_train_demo.columns}")
-            print(f"Sample sector_label in X_train_demo: {X_train_demo['sector_label'].value_counts()}")
+    add_features_to_data_dict(patent_features_df, "_patent", data_dict_for_predictor, aligned_idx)
+    add_features_to_data_dict(funding_features_df, "_funding", data_dict_for_predictor, aligned_idx)
+    add_features_to_data_dict(research_features_df, "_research", data_dict_for_predictor, aligned_idx) # Will include NLP
 
-            print("\n--- Starting Model Training & Validation ---")
+    data_dict_for_predictor['target_growth_6m'] = mock_targets_df['target_growth_6m'].values
+
+    historical_data_df = pd.DataFrame(data_dict_for_predictor, index=aligned_idx)
+    # No need to set_index('observation_date') as aligned_idx is already used as index.
+
+    # Handle NaNs that might have occurred if some feature sets were empty or due to repeat/reindex logic
+    # For repeated scalar aggregates, NaNs are less likely unless original aggregate was NaN.
+    historical_data_df = historical_data_df.fillna(historical_data_df.median(numeric_only=True))
+    historical_data_df = historical_data_df.dropna(subset=['target_growth_6m']) # Critical drop
+    # Further drop rows if all feature columns are NaN (excluding sector_label and target)
+    feature_cols_for_dropna = [col for col in historical_data_df.columns if col not in ['sector_label', 'target_growth_6m']]
+    if feature_cols_for_dropna: # Only if there are feature columns
+        historical_data_df = historical_data_df.dropna(subset=feature_cols_for_dropna, how='all')
+
+
+    if historical_data_df.empty:
+        print("Error: historical_data_df is empty after feature combination and NaN handling. Cannot proceed with model training demo.")
+        exit(1)
+
+    print(f"Combined historical_data_df created for demo predictor. Shape: {historical_data_df.shape}")
+    print(f"Columns in historical_data_df: {historical_data_df.columns.tolist()}")
+
+
+    # --- This is where predictor.prepare_training_data should be called ---
+    # The current structure of run.py calls prepare_training_data with individual dataframes.
+    # For the demo model training part (train_sector_models, validate_models),
+    # it expects a single X_train_demo, y_train_demo.
+    # The predictor.prepare_training_data is more about preparing data *before* it gets to the model training stage,
+    # by aligning different raw time series.
+    # The `historical_data_df` just created IS the data that should be split for the demo.
+    # So, the call to predictor.prepare_training_data with mock_patent_df etc. is for a different purpose
+    # (testing that method), not for feeding the demo `train_sector_models`.
+
+    # For the purpose of this subtask (integrating NLP features into the *demo model training pipeline*),
+    # the `historical_data_df` now contains these features.
+    # The original `X_prepared, y_prepared = predictor.prepare_training_data(...)` call might be
+    # redundant or for a separate test of that specific method if not removed/refactored.
+    # Let's assume for now the goal is to ensure X_train_demo/X_test_demo get the NLP features.
+
+    # Splitting historical_data_df for the demo
+    train_size = int(len(historical_data_df) * 0.7)
+    if train_size == 0 and len(historical_data_df) > 0 : train_size = 1 # Ensure at least one sample for training if data exists
+
+    if len(historical_data_df) == 0 :
+        print("Error: historical_data_df is empty, cannot split for training/testing.")
+        # Optionally, exit or skip training/validation if appropriate
+        X_train_demo, y_train_demo, X_test_demo, y_test_demo = pd.DataFrame(), pd.Series(dtype='float64'), pd.DataFrame(), pd.Series(dtype='float64')
+    else:
+        X_train_demo = historical_data_df.iloc[:train_size].drop(columns=['target_growth_6m'])
+        y_train_demo = historical_data_df.iloc[:train_size]['target_growth_6m']
+        X_test_demo = historical_data_df.iloc[train_size:].drop(columns=['target_growth_6m'])
+        y_test_demo = historical_data_df.iloc[train_size:]['target_growth_6m']
+
+    # Check if splits are empty, which can happen if historical_data_df has very few rows
+    if X_train_demo.empty or y_train_demo.empty:
+        print("Warning: Training data (X_train_demo or y_train_demo) is empty after splitting. Model training might fail or be skipped.")
+    if X_test_demo.empty or y_test_demo.empty:
+        print("Warning: Test data (X_test_demo or y_test_demo) is empty after splitting. Model validation might be skipped.")
+
+    # The original call to predictor.prepare_training_data is removed from here,
+    # as historical_data_df now serves as the input to the demo training.
+    # If predictor.prepare_training_data itself needs to be tested with these features,
+    # that would be a separate call, possibly using copies of mock_patent_df, etc.
+
+    # --- Original X_prepared, y_prepared section (commented out as historical_data_df replaces its role for demo) ---
+    # print(f"Preparing training data for sectors: {cli_sectors}...")
+    # X_prepared, y_prepared = predictor.prepare_training_data(
+    #     mock_patent_df.drop(columns=['sector_label'], errors='ignore'),
+    #     mock_funding_df.drop(columns=['sector_label'], errors='ignore'),
+    #     research_df.drop(columns=['sector_label'], errors='ignore'),
+    #     mock_targets_df[['target_growth_6m']]
+    # )
+    # print("Training data prepared.") # This was for the specific test of prepare_training_data
+    # ... (rest of the X_prepared logic that is now handled by historical_data_df split)
+
+    # Ensure downstream code uses X_train_demo, y_train_demo, X_test_demo, y_test_demo
+    # which are derived from historical_data_df that now includes NLP features.
+
+    # This section is now effectively:
+    # if X_train_demo.empty or X_test_demo.empty:
+    #     print("Error: Not enough data to proceed with training/validation after splitting historical_data_df.")
+    # else:
+    # (proceed with training)
+
+    if not X_train_demo.empty and not y_train_demo.empty:
+        print(f"X_train_demo shape: {X_train_demo.shape}, y_train_demo shape: {y_train_demo.shape}")
+        print(f"X_test_demo shape: {X_test_demo.shape}, y_test_demo shape: {y_test_demo.shape}")
+        print(f"X_train_demo columns: {X_train_demo.columns.tolist()}") # .tolist() for cleaner print
+        print(f"Sample sector_label in X_train_demo: {X_train_demo['sector_label'].value_counts()}")
+        print("\n--- Starting Model Training & Validation ---")
             # Execute Training and Validation
             trained_models = predictor.train_sector_models(X_train_demo, y_train_demo, sectors_column='sector_label')
             print("Sector models trained.")

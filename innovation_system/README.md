@@ -35,6 +35,12 @@ engineers features, trains predictive models, and generates forecasts.
     \`\`\`bash
     pip install -r requirements.txt
     \`\`\`
+    *   **NLTK Resources:** The Natural Language Toolkit (`nltk`), a dependency, may require additional resources (like 'punkt' for tokenization and 'stopwords' for stop word lists). While the system attempts to download these automatically on first use if missing (you might see console messages during this one-time download), you can also download them manually via a Python interpreter:
+        \`\`\`python
+        import nltk
+        nltk.download('punkt')
+        nltk.download('stopwords')
+        \`\`\`
 
 4.  **Configure API Keys:**
     - Update API keys in relevant configuration files or via environment variables as needed.

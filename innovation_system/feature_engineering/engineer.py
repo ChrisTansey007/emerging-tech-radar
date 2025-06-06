@@ -5,10 +5,31 @@ from sklearn.preprocessing import StandardScaler
 # Keeping them commented out for now. If specific methods using them are added, they can be uncommented.
 # from textblob import TextBlob
 # import networkx as nx
+import nltk
+import re # For basic cleaning if needed
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+from innovation_system.config.settings import feature_config as global_feature_config # Import for default
+
+def _ensure_nltk_resources():
+    try:
+        nltk.data.find('corpora/stopwords')
+    except nltk.downloader.DownloadError:
+        print("NLTK 'stopwords' resource not found. Downloading...")
+        nltk.download('stopwords', quiet=True)
+    try:
+        nltk.data.find('tokenizers/punkt')
+    except nltk.downloader.DownloadError:
+        print("NLTK 'punkt' resource not found. Downloading...")
+        nltk.download('punkt', quiet=True)
+
+_ensure_nltk_resources() # Call it once when the module is loaded
+
 
 class FeatureEngineer:
-    def __init__(self):
+    def __init__(self, config=None):
         self.scaler = StandardScaler()
+        self.feature_config = config if config is not None else global_feature_config
         # self.tech_categories = self._load_tech_taxonomy() # Conceptual
 
     def _load_tech_taxonomy(self):
@@ -61,6 +82,41 @@ class FeatureEngineer:
         features['avg_citation_count'] = papers_df['citation_count'].mean() if 'citation_count' in papers_df.columns and not papers_df['citation_count'].empty else 0
         features['avg_authors_per_paper'] = papers_df['authors'].apply(len).mean() if 'authors' in papers_df.columns and not papers_df['authors'].empty else 0
         features['category_diversity_shannon'] = self._calculate_tech_diversity(papers_df, 'categories', explode_list=True) if 'categories' in papers_df.columns else 0
+
+        # NLP Features
+        if 'abstract' in papers_df.columns:
+            papers_df['abstract_length'] = papers_df['abstract'].fillna('').apply(len)
+        else:
+            papers_df['abstract_length'] = 0
+
+        keywords_from_config = [kw.lower() for kw in self.feature_config.get('emerging_tech_keywords', [])]
+        stop_words_set = set(stopwords.words('english'))
+
+        def count_kws(abstract_text):
+            if pd.isna(abstract_text) or not abstract_text:
+                return 0
+            text = abstract_text.lower()
+            try:
+                tokens = word_tokenize(text)
+            except Exception:
+                tokens = text.split()
+
+            processed_tokens = [word for word in tokens if word.isalnum() and word not in stop_words_set]
+
+            current_kw_count = 0
+            for keyword_to_find in keywords_from_config:
+                current_kw_count += processed_tokens.count(keyword_to_find)
+            return current_kw_count
+
+        if 'abstract' in papers_df.columns and keywords_from_config:
+            papers_df['keyword_count'] = papers_df['abstract'].apply(count_kws)
+        else:
+            papers_df['keyword_count'] = 0
+
+        features['avg_abstract_length'] = papers_df['abstract_length'].mean() if 'abstract_length' in papers_df.columns and not papers_df['abstract_length'].empty else 0
+        features['avg_keyword_count'] = papers_df['keyword_count'].mean() if 'keyword_count' in papers_df.columns and not papers_df['keyword_count'].empty else 0
+        features['sum_keyword_count'] = papers_df['keyword_count'].sum() if 'keyword_count' in papers_df.columns and not papers_df['keyword_count'].empty else 0
+
         return pd.DataFrame([features])
 
     def _calculate_event_rate(self, df, date_column, months):
