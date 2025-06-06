@@ -2,6 +2,59 @@
 
 This repository is dedicated to tracking and evaluating emerging technologies. The goal is to provide a comprehensive overview of the latest trends and innovations in the tech industry.
 
+## 🚀 Getting Started in 5 Minutes
+
+Follow these steps to get the Innovation Prediction System up and running quickly with mock data:
+
+1.  **Clone the Repository:**
+    ```bash
+    git clone https://github.com/your-username/EmergingTechRadar.git # Replace with actual repo URL
+    cd EmergingTechRadar
+    ```
+
+2.  **Create and Activate a Virtual Environment:**
+    *   On macOS & Linux:
+        ```bash
+        python3 -m venv venv
+        source venv/bin/activate
+        ```
+    *   On Windows:
+        ```bash
+        python -m venv venv
+        .\venv\Scripts\activate
+        ```
+
+3.  **Install Dependencies:**
+    (From the project root directory `EmergingTechRadar/`)
+    ```bash
+    pip install -r innovation_system/requirements.txt
+    ```
+    *Note: Some libraries like NLTK might require additional data. The system attempts to download these automatically. See the detailed setup in the [Innovation Prediction System README](./innovation_system/README.md) if you encounter issues.*
+
+4.  **API Key Setup (Using Defaults):**
+    For this quick start, the system will use default placeholder API keys. Live data will only be fetched from arXiv. To enable other live data sources later, you'll need to create a `.env` file in the project root as described in the main "Setup" section of the [Innovation Prediction System README](./innovation_system/README.md).
+
+5.  **Run a Sample Analysis (from project root):**
+    This command will process data for AI and Quantum Computing for a short period, using mock data for patents/funding and attempting live arXiv data.
+    ```bash
+    python innovation_system/main/run.py --sectors "AI,Quantum Computing" --start-date 2023-01-01 --end-date 2023-01-07 --horizons "6" --force-collect
+    ```
+
+6.  **What You'll See:**
+    This command processes data for the 'AI' and 'Quantum Computing' sectors for a short period in early 2023, using mock data for patents and funding, and attempting a live fetch for arXiv research papers. The `--force-collect` flag ensures data is (re)generated. You'll see progress messages in the console.
+
+    Afterwards, check the following locations (relative to the project root directory `EmergingTechRadar/`):
+    *   **Processed Data Files:**
+        *   `innovation_system/data/raw/patents.parquet`
+        *   `innovation_system/data/raw/funding.parquet`
+        *   `innovation_system/data/raw/research_papers.parquet`
+    *   **Monitoring Database:**
+        *   `innovation_system/data/monitoring.sqlite`
+    *   **Log File:**
+        *   `system_monitor.log` (created in the project root directory `EmergingTechRadar/`)
+
+    The Parquet files contain the data used for analysis, the SQLite database records the status of this run, and the log file provides detailed execution information.
+
 ## Table of Contents
 
 - [Introduction](#introduction)
