@@ -42,18 +42,26 @@ engineers features, trains predictive models, and generates forecasts.
         nltk.download('stopwords')
         \`\`\`
 
-4.  **Configure API Keys:**
-    - Update API keys in relevant configuration files or via environment variables as needed.
-      For example, Crunchbase API key in \`FundingDataCollector\` and potentially a PubMed API key in \`ResearchDataCollector\`.
-      These are currently placeholder values in the code (e.g., "YOUR_CRUNCHBASE_KEY").
+4.  **Set Up API Keys (Optional for Mock Data):**
+    - This system is designed to use API keys for live data collection, managed via a `.env` file at the project root (e.g., `EmergingTechRadar/.env` if your project is in a directory named `EmergingTechRadar`).
+    - Create a file named `.env` in the **project root directory**.
+    - Add your API keys to this `.env` file. Example format:
+      \`\`\`env
+      # .env - Place this file in the project root directory
+      USPTO_API_KEY="YOUR_USPTO_API_KEY_PLACEHOLDER"
+      CRUNCHBASE_API_KEY="YOUR_CRUNCHBASE_API_KEY_PLACEHOLDER"
+      PUBMED_API_KEY="YOUR_PUBMED_API_KEY_PLACEHOLDER"
+      \`\`\`
+    - **Important:** The `.env` file is listed in the project's `.gitignore` and should *not* be committed to version control if it contains real secrets.
+    - The `python-dotenv` library (installed via `requirements.txt`) automatically loads these variables when the application starts.
+    - If API keys are not provided in `.env` or are left as placeholders, data collectors requiring them will use the default placeholder values defined in `innovation_system/config/settings.py`. This means they may not fetch live data or may be rate-limited. Currently, only the arXiv data collection is attempted live without requiring a dedicated API key configured through `.env` (as the `arxiv` library can be used without authentication for basic queries).
 
 ## Running the System
 
 The main conceptual demonstration script is `main/run.py`. It can be run with default settings or customized using command-line arguments.
+Refer to the "Data Handling and Persistence" section below for details on how data sources (live vs. mock) are currently managed.
 
-**Note:** The `main/run.py` script currently uses placeholder data (mock data generation) for demonstration purposes.
-Full functionality (live data collection, actual model training on real data) would require uncommenting and completing the data collection phase,
-valid API keys, and potentially more extensive historical data for model training.
+**Note:** For full live data collection across all sources (patents, funding, comprehensive research), the relevant API keys need to be configured in the `.env` file, and the data collection calls in `main/run.py` (currently commented out) would need to be activated. The system primarily uses mock data for patents and funding in its current demonstration state.
 
 ### Command-Line Interface (CLI)
 
@@ -105,9 +113,24 @@ The `main/run.py` script supports command-line arguments to customize the analys
     python innovation_system/main/run.py --force-collect --sectors "AI"
     ```
 
-**Note on Data Handling:**
+### Data Handling and Persistence
 
-The script now incorporates a basic data persistence layer. When data is generated (currently mock data, based on CLI parameters), it is saved to Parquet files within the `data/raw/` directory (e.g., `patents.parquet`, `funding.parquet`, `research_papers.parquet`).
+The system manages data for its demonstration runs as follows:
 
-On subsequent runs, the system will load data from these files by default, if they exist. This behavior can be overridden using the `--force-collect` flag, which will force regeneration and saving of the data. This feature is intended to speed up development and repeated runs by avoiding redundant data processing.
-The `data/raw/` directory contains a `.gitkeep` file to ensure the directory structure is part of the repository, while the `data/.gitignore` file is configured to exclude `*.parquet` files from being committed.
+*   **Live Data Collection:**
+    *   **Research Papers (arXiv):** The `main/run.py` script attempts to fetch live data for research papers directly from arXiv based on the specified sectors (mapped to arXiv categories) and the chosen date range.
+*   **Mock Data Generation:**
+    *   **Patents (USPTO) & Funding (Crunchbase):** For patent and funding data, the system currently generates mock data. This mock data is designed to reflect the structure of real data (e.g., patent data mimics USPTO's PEDS API structure). The underlying collector classes (`PatentDataCollector`, `FundingDataCollector`) are set up to use API keys from the `.env` file, but the main script does not yet call them for live collection in the demo (their instantiation lines are commented out).
+*   **Data Persistence:**
+    *   All primary data used by the system—whether live-collected (arXiv) or mock-generated (patents, funding)—is saved into Parquet files within the `data/raw/` directory (e.g., `research_papers.parquet`, `patents.parquet`, `funding.parquet`).
+        *   A separate SQLite database for monitoring pipeline status (`monitoring.sqlite`) is stored in the `data/` directory.
+        *   The data source Parquet files (`data/raw/*.parquet`) and the monitoring database (`data/*.sqlite`) are configured to be ignored by Git (see `.gitignore` and `data/.gitignore`). The `data/raw/.gitkeep` file ensures the raw data directory structure is maintained in the repository.
+*   **Loading Persisted Data:**
+    *   On subsequent runs, if these Parquet files exist in `data/raw/`, the system will load data directly from them by default. This significantly speeds up startup and allows for consistent reruns with the same dataset.
+*   **Overriding Persistence (`--force-collect`):**
+    *   The `--force-collect` CLI flag, when used, bypasses loading from existing Parquet files.
+    *   It will force the system to:
+        *   Re-collect live data from arXiv.
+        *   Re-generate mock data for patents and funding.
+    *   The newly collected/generated data will then overwrite the existing Parquet files in `data/raw/`.
+    *   This mechanism is useful for refreshing the data or testing the collection/generation processes.
