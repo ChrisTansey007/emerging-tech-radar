@@ -127,23 +127,166 @@ class PredictionGenerator:
         return emerging_techs_output
 
     def _analyze_emergence_signals(self, area_features_series, emergence_score):
-        return {'key_indicators': ["Rapid patent filing", "Funding surge"], 'timeline_estimate': "1-2 years", 'confidence_level': "Medium", 'risk_factors': ["Market adoption"]}
+        # Access configurations from self.prediction_config
+        indicators_config = self.prediction_config.get('emergence_indicators', {})
+        analysis_thresholds = self.prediction_config.get('emergence_analysis_thresholds', {}) # Expected to be added to config
+        risk_map = self.prediction_config.get('emergence_risk_factors_map', {}) # Expected to be added to config
+
+        # 1. Determine Key Indicators
+        weighted_contributions = {}
+        # Ensure area_features_series is a Series
+        if isinstance(area_features_series, pd.DataFrame):
+            current_features = area_features_series.iloc[0] if not area_features_series.empty else pd.Series()
+        else:
+            current_features = area_features_series
+
+        for feature_name, weight in indicators_config.items():
+            value = current_features.get(feature_name, 0)
+            # Only consider features present in the series and with positive values for this simplified contribution
+            if value > 0 and feature_name in current_features:
+                weighted_contributions[feature_name] = value * weight
+
+        sorted_contributors = sorted(weighted_contributions.items(), key=lambda item: item[1], reverse=True)
+
+        key_indicators_output = []
+        for name, contrib in sorted_contributors[:3]: # Top 3
+            if contrib > 0: # Ensure contribution is positive
+                 # Try to get raw value for context, default to 0 if not found
+                raw_value = current_features.get(name, 0)
+                key_indicators_output.append(f"{name.replace('_', ' ').title()} (Value: {raw_value:.2f}, Contribution: {contrib:.2f})")
+
+        if not key_indicators_output and emergence_score > 0: # If score is positive but no specific indicators from loop
+            key_indicators_output = [f"Overall positive momentum (Score: {emergence_score:.2f})"]
+        elif not key_indicators_output:
+            key_indicators_output = ["No specific strong positive indicators found."]
+
+        # 2. Estimate Timeline
+        fast_thresh = analysis_thresholds.get('timeline_fast_threshold', 0.7)
+        medium_thresh = analysis_thresholds.get('timeline_medium_threshold', 0.4)
+        if emergence_score >= fast_thresh:
+            timeline_str = "0-1 year"
+        elif emergence_score >= medium_thresh:
+            timeline_str = "1-2 years"
+        else:
+            timeline_str = "2-3+ years"
+
+        # 3. Set Confidence Level
+        high_conf_thresh = analysis_thresholds.get('score_high_confidence', 0.7)
+        medium_conf_thresh = analysis_thresholds.get('score_medium_confidence', 0.4)
+        if emergence_score >= high_conf_thresh:
+            confidence_str = "High"
+        elif emergence_score >= medium_conf_thresh:
+            confidence_str = "Medium"
+        else:
+            confidence_str = "Low"
+
+        # 4. Identify Risk Factors (Simplified)
+        identified_risks_list = []
+        # Arbitrary low thresholds for demonstration, assuming features are somewhat scaled or their typical ranges are known.
+        # These thresholds should ideally come from config or be based on feature distributions.
+        # For this subtask, using placeholder values.
+        low_funding_threshold = current_features.filter(like='_funding').mean() * 0.25 if any(col for col in current_features.index if '_funding' in col) else 0.1
+        low_research_threshold = current_features.filter(like='_research').mean() * 0.25 if any(col for col in current_features.index if '_research' in col) else 0.1
+        low_patent_threshold = current_features.filter(like='_patent').mean() * 0.25 if any(col for col in current_features.index if '_patent' in col) else 0.1
+
+        # Using specific feature names if they are consistently available from _calculate_emergence_score
+        # These names are used in _calculate_emergence_score, so they should be in area_features_series
+        if current_features.get('funding_deals_velocity_3m_funding', 0) < low_funding_threshold :
+            identified_risks_list.append(risk_map.get('low_funding_signal', "Low funding velocity indicates commercialization lag."))
+        if current_features.get('publication_rate_3m_research', 0) < low_research_threshold:
+            identified_risks_list.append(risk_map.get('low_research_signal', "Low publication rate suggests weakening research base."))
+        if current_features.get('filing_rate_3m_patent', 0) < low_patent_threshold:
+            identified_risks_list.append(risk_map.get('low_patent_signal', "Low patent filing rate points to slowing IP generation."))
+
+        if not identified_risks_list and confidence_str != "High": # If no specific risks and confidence is not High
+            identified_risks_list.append(risk_map.get('nascent_market', "General market adoption and scalability uncertainties for nascent tech."))
+
+        if len(identified_risks_list) > 2: # Limit to top 2 distinct risks
+            identified_risks_list = list(dict.fromkeys(identified_risks_list))[:2]
+
+
+        return {
+            'key_indicators': key_indicators_output,
+            'timeline_estimate': timeline_str,
+            'confidence_level': confidence_str,
+            'risk_factors': identified_risks_list
+        }
 
     def _calculate_investment_attractiveness(self, sector, forecast_details, market_data, ranking_criteria):
-        score = 0; drivers = []; risks = []
+        score = 0
         growth_forecast = forecast_details.get('prediction', 0)
+        quality_score = forecast_details.get('quality_score', 0) # Prediction quality/confidence
+        market_size = market_data.get('market_size_usd', 0)
+
+        # Score calculation (existing logic maintained for overall score)
         score += growth_forecast * ranking_criteria.get('growth_potential', 0)
-        drivers.append(f"Expected Growth: {growth_forecast:.2%}")
-        confidence = forecast_details.get('quality_score', 0)
-        score += confidence * ranking_criteria.get('confidence_score', 0)
-        if confidence < 0.6: risks.append("Low prediction confidence")
-        current_market_size = market_data.get('market_size_usd', 0)
-        score += (current_market_size / 1e9) * ranking_criteria.get('market_size', 0)
-        drivers.append(f"Market Size: ${current_market_size/1e6:.0f}M")
-        score += ranking_criteria.get('risk_adjusted_return', 0)
+        score += quality_score * ranking_criteria.get('confidence_score', 0)
+        score += (market_size / 1e9) * ranking_criteria.get('market_size', 0) # Normalize market size for scoring
+        score += ranking_criteria.get('risk_adjusted_return', 0) # This is a placeholder, true risk adjustment is complex
+
+        # Enhanced Drivers Logic
+        drivers = []
+        high_growth_thresh = ranking_criteria.get('high_growth_threshold', 0.10)
+        large_market_thresh_usd = ranking_criteria.get('large_market_threshold_usd', 5e8)
+
+        if growth_forecast >= high_growth_thresh:
+            drivers.append(f"Strong Growth Potential ({growth_forecast:.2%})")
+        elif growth_forecast > 0: # Consider any positive growth a driver, could be refined
+            drivers.append(f"Moderate Growth Potential ({growth_forecast:.2%})")
+        else:
+            drivers.append(f"Low/Negative Growth ({growth_forecast:.2%})")
+
+
+        if quality_score >= self.prediction_config.get('confidence_thresholds', {}).get('high', 0.8):
+            drivers.append("High Prediction Confidence")
+
+        if market_size >= large_market_thresh_usd:
+            drivers.append(f"Large Market Size (${market_size/1e6:.0f}M)")
+        elif market_size > 0:
+             drivers.append(f"Market Size (${market_size/1e6:.0f}M)")
+
+        if not drivers: drivers.append("General market dynamics.")
+
+
+        # Enhanced Risks Logic
+        risks = []
+        min_market_size_thresh_usd = ranking_criteria.get('min_market_size_threshold_usd', 1e8)
+        medium_confidence_thresh = self.prediction_config.get('confidence_thresholds', {}).get('medium', 0.6)
+        low_confidence_thresh = self.prediction_config.get('confidence_thresholds', {}).get('low', 0.4)
+        low_growth_risk_thresh = ranking_criteria.get('low_growth_threshold', 0.01)
+
+        if quality_score < low_confidence_thresh:
+            risks.append("Very Low Prediction Confidence")
+        elif quality_score < medium_confidence_thresh:
+            risks.append("Medium/Low Prediction Confidence")
+
+        if market_size < min_market_size_thresh_usd and market_size > 0:
+            risks.append(f"Niche or Potentially Small Market (${market_size/1e6:.0f}M)")
+        elif market_size == 0 and sector != "Emerging Technology": # For established sectors, 0 market size is a risk
+            risks.append("Market Size Unknown/Unverified")
+
+        if growth_forecast < low_growth_risk_thresh:
+            risks.append(f"Low or Negative Growth Forecast ({growth_forecast:.2%})")
+
+        if not risks: # If no specific risks identified
+            risks.append("Standard market and execution risks apply.")
+
+        # Action determination (existing logic maintained)
         action = "Monitor"
-        if score > 0.5 and growth_forecast > 0.05 and confidence > 0.7: action = "Consider Investment"
-        elif score > 0.3 and growth_forecast > 0: action = "Monitor Closely"
+        # Thresholds for action can also be moved to config
+        action_consider_investment_score_thresh = ranking_criteria.get('action_invest_score_thresh', 0.5)
+        action_invest_growth_thresh = ranking_criteria.get('action_invest_growth_thresh', 0.05)
+        action_invest_confidence_thresh = self.prediction_config.get('confidence_thresholds', {}).get('high', 0.7) # Use high from general config
+
+        action_monitor_closely_score_thresh = ranking_criteria.get('action_monitor_score_thresh', 0.3)
+
+        if score > action_consider_investment_score_thresh and \
+           growth_forecast > action_invest_growth_thresh and \
+           quality_score >= action_invest_confidence_thresh:
+            action = "Consider Investment"
+        elif score > action_monitor_closely_score_thresh and growth_forecast > 0:
+            action = "Monitor Closely"
+
         return {'score': score, 'drivers': drivers, 'risks': risks, 'action': action}
 
     def create_investment_opportunities(self, sector_forecasts, emerging_techs_list, market_data_map, ranking_criteria):
