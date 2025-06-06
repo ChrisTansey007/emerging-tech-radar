@@ -185,29 +185,84 @@ if __name__ == '__main__':
         mock_funding_df = pd.DataFrame(np.random.rand(num_periods_actual, len(mock_funding_columns)), index=dates_idx, columns=mock_funding_columns)
         mock_funding_df['sector_label'] = sector_list_for_mock
 
-        mock_research_columns = ['publication_rate_6m', 'avg_citation_count', 'avg_authors_per_paper', 'category_diversity_shannon']
-        mock_research_df = pd.DataFrame(np.random.rand(num_periods_actual, len(mock_research_columns)), index=dates_idx, columns=mock_research_columns)
-        mock_research_df['sector_label'] = sector_list_for_mock
+        # --- Research Data: Try Live Collection, Fallback to Mock ---
+        research_collector = ResearchDataCollector()
+        research_df = pd.DataFrame()
+        days_back_calc = (cli_end_date - cli_start_date).days
+        actual_days_back = max(1, days_back_calc) # Ensure days_back is at least 1
 
+        arxiv_categories_to_try = []
+        sector_to_arxiv_cat = {
+            "AI": "cs.AI", "ML": "cs.LG", "CV": "cs.CV", "LG": "cs.LG", "RO": "cs.RO",
+            "CS.AI": "cs.AI", "CS.LG": "cs.LG", "CS.CV": "cs.CV", "CS.RO": "cs.RO",
+            "BIOTECH": "q-bio.BM", "Q-BIO.BM": "q-bio.BM",
+            "QUANTUM": "quant-ph", "QUANT-PH": "quant-ph"
+        }
+        if cli_sectors:
+            for sector in cli_sectors:
+                cat = sector_to_arxiv_cat.get(sector, sector_to_arxiv_cat.get(sector.upper(), sector))
+                arxiv_categories_to_try.append(cat)
+        else:
+            arxiv_categories_to_try.append("cs.AI") # Default
+
+        print(f"Attempting live arXiv data collection for categories: {arxiv_categories_to_try} covering {actual_days_back} days...")
+        try:
+            live_research_papers = research_collector.collect_arxiv_papers(categories=arxiv_categories_to_try, days_back=actual_days_back)
+            if live_research_papers:
+                research_df = pd.DataFrame(live_research_papers)
+                # Convert 'published_date' to datetime objects if they are strings
+                if 'published_date' in research_df.columns:
+                    research_df['published_date'] = pd.to_datetime(research_df['published_date'])
+                print(f"Successfully collected {len(research_df)} arXiv papers.")
+            else:
+                print("No papers collected from arXiv for the given criteria.")
+        except Exception as e:
+            print(f"Error during arXiv data collection: {e}")
+            live_research_papers = []
+
+        if research_df.empty:
+            print("Falling back to mock research data generation.")
+            num_mock_papers = 50
+            mock_research_data_list = []
+            for i in range(num_mock_papers):
+                mock_research_data_list.append({
+                    'paper_id': f'mockArxiv{i}',
+                    'title': f'Mock Research Paper Title {i}',
+                    'authors': [f'Author {j}' for j in range(np.random.randint(1,4))],
+                    'abstract': f'This is a mock abstract for paper {i}. ' * 5,
+                    'categories': [arxiv_categories_to_try[i % len(arxiv_categories_to_try)]] if arxiv_categories_to_try else ['cs.AI'],
+                    'published_date': (cli_end_date - timedelta(days=np.random.randint(0, actual_days_back))) if actual_days_back > 0 else cli_end_date, # Ensure date is datetime
+                    'pdf_url': f'http://mock.arxiv.org/pdf/mockArxiv{i}',
+                    'source': 'arXiv_mock',
+                    'citation_count': 0
+                })
+            research_df = pd.DataFrame(mock_research_data_list)
+            # Ensure published_date is datetime for mock as well
+            if 'published_date' in research_df.columns:
+                 research_df['published_date'] = pd.to_datetime(research_df['published_date'])
+            print(f"Generated {len(research_df)} mock research papers.")
+
+        # Save all generated/collected data
         print(f"Saving mock patents data to {PATENTS_FILE}...")
         mock_patent_df.to_parquet(PATENTS_FILE)
         print(f"Saving mock funding data to {FUNDING_FILE}...")
         mock_funding_df.to_parquet(FUNDING_FILE)
-        print(f"Saving mock research data to {RESEARCH_FILE}...")
-        mock_research_df.to_parquet(RESEARCH_FILE)
-        print("Mock data generated and saved.")
+        print(f"Saving research data (live or mock) to {RESEARCH_FILE}...")
+        research_df.to_parquet(RESEARCH_FILE) # research_df is now the one to save
+        print("All data saved.")
 
     else:
-        print("\n--- Loading Mock Data from Parquet Files ---")
+        print("\n--- Loading Data from Parquet Files ---") # Changed from "Mock Data" to generic "Data"
         print(f"Loading patents data from {PATENTS_FILE}...")
-        mock_patent_df = pd.read_parquet(PATENTS_FILE)
+        mock_patent_df = pd.read_parquet(PATENTS_FILE) # Still called mock_patent_df for consistency downstream
         print(f"Loading funding data from {FUNDING_FILE}...")
-        mock_funding_df = pd.read_parquet(FUNDING_FILE)
+        mock_funding_df = pd.read_parquet(FUNDING_FILE) # Still called mock_funding_df for consistency
         print(f"Loading research data from {RESEARCH_FILE}...")
-        mock_research_df = pd.read_parquet(RESEARCH_FILE)
-        print("Mock data loaded.")
+        research_df = pd.read_parquet(RESEARCH_FILE) # Use research_df here
+        print("Data loaded from Parquet files.")
 
     # Generate mock_targets_df in memory, ensuring alignment with loaded/generated feature data
+    # Use index from patent data as the primary time series index for mock targets
     num_target_periods = len(mock_patent_df)
     dates_for_targets = mock_patent_df.index
 
@@ -232,11 +287,17 @@ if __name__ == '__main__':
     # Pass DataFrames without 'sector_label' for features, as predictor doesn't handle it internally during alignment.
     # Target DF should only contain the target column.
     print(f"Preparing training data for sectors: {cli_sectors}...")
+
+    # Ensure research_df is passed to prepare_training_data, not mock_research_df if it was overwritten
+    # Also, predictor expects feature dataframes without sector_label.
+    # The live research_df does not have 'sector_label' yet.
+    # The mock patent/funding dfs have it, so it's dropped before passing.
+
     X_prepared, y_prepared = predictor.prepare_training_data(
-        mock_patent_df.drop(columns=['sector_label']),
-        mock_funding_df.drop(columns=['sector_label']),
-        mock_research_df.drop(columns=['sector_label']),
-        mock_targets_df[['target_growth_6m']] # Ensure only target column is passed
+        mock_patent_df.drop(columns=['sector_label'], errors='ignore'), # errors='ignore' if sector_label might not exist
+        mock_funding_df.drop(columns=['sector_label'], errors='ignore'),
+        research_df.drop(columns=['sector_label'], errors='ignore'), # Use the actual research_df (live or mock)
+        mock_targets_df[['target_growth_6m']]
     )
     print("Training data prepared.")
 

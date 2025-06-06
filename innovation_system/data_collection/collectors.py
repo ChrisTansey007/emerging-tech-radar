@@ -201,7 +201,7 @@ class ResearchDataCollector:
                         papers.append({
                             'paper_id': paper.entry_id, 'title': paper.title,
                             'authors': [str(author) for author in paper.authors],
-                            'abstract': paper.summary.replace('\n', ' '),
+                            'abstract': paper.summary.replace('\n', ' ') if paper.summary else "",
                             'categories': paper.categories, 'published_date': paper.published.isoformat(),
                             'pdf_url': paper.pdf_url, 'citation_count': 0, 'source': 'arXiv'
                         })
