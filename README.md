@@ -91,6 +91,20 @@ A high-level visual overview of this module's workflow, from data collection thr
 
 For more detailed setup instructions, usage examples, and technical information about this module, please refer to the [Innovation Prediction System README](./innovation_system/README.md).
 
+## Continuous Integration (CI)
+
+This project uses [GitHub Actions](https://github.com/features/actions) for Continuous Integration. On every push or pull request to key branches (e.g., `main`, `development`), a CI pipeline automatically performs the following checks:
+
+*   **Linting:** Code style and quality are checked using [Flake8](https://flake8.pycqa.org/).
+*   **Unit Tests:** Automated tests are run using [Pytest](https://pytest.org/).
+*   **Code Coverage:** Test coverage is measured using [Coverage.py](https://coverage.readthedocs.io/) and the build will fail if coverage drops below a defined threshold (currently set as an example at 60%).
+
+This helps to maintain code quality, ensure tests pass, and catch issues early in the development process.
+
+[![Python CI Status](https://github.com/YOUR_USERNAME/EmergingTechRadar/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/EmergingTechRadar/actions/workflows/ci.yml)
+
+*(Note: Please replace `YOUR_USERNAME/EmergingTechRadar` in the badge URL above with the actual path to this repository after the CI workflow has run at least once for the badge to be active.)*
+
 ## Technologies
 
 This section will list the emerging technologies being tracked. Each technology will have its own page with detailed information, including:

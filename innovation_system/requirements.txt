@@ -11,3 +11,6 @@ joblib
 scipy
 nltk
 python-dotenv
+flake8
+pytest
+coverage
