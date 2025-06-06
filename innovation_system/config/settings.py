@@ -10,6 +10,12 @@ USPTO_API_KEY = os.getenv("USPTO_API_KEY", "USPTO_DEFAULT_PLACEHOLDER")
 CRUNCHBASE_API_KEY = os.getenv("CRUNCHBASE_API_KEY", "CRUNCHBASE_DEFAULT_PLACEHOLDER")
 PUBMED_API_KEY = os.getenv("PUBMED_API_KEY", "PUBMED_DEFAULT_PLACEHOLDER")
 
+# EPO Open Patent Services (OPS) Configuration
+EPO_OPS_CONSUMER_KEY = os.getenv("EPO_OPS_CONSUMER_KEY", "EPO_OPS_DEFAULT_KEY_PLACEHOLDER")
+EPO_OPS_CONSUMER_SECRET = os.getenv("EPO_OPS_CONSUMER_SECRET", "EPO_OPS_DEFAULT_SECRET_PLACEHOLDER")
+EPO_OPS_ACCESS_TOKEN_URL = "https://ops.epo.org/3.2/auth/accesstoken"
+EPO_OPS_BASE_URL = "https://ops.epo.org/rest-services/published-data"
+
 
 patent_config = {
     'collection_frequency': 'daily',
