@@ -9,12 +9,17 @@ import arxiv
 # but keeping it here if it's intended for WIPO/EPO extensions.
 import feedparser
 import os
+from innovation_system.config.settings import USPTO_API_KEY, CRUNCHBASE_API_KEY, PUBMED_API_KEY
 
 class PatentDataCollector:
     def __init__(self):
         self.uspto_base_url = "https://developer.uspto.gov/ibd-api/v1"
-        self.wipo_rss_feed = "https://patentscope.wipo.int/search/rss" # Example, actual usage would need parsing logic
-        self.epo_ops_url = "https://ops.epo.org/3.2" # Example, actual usage would need OAuth and specific client
+        self.wipo_rss_feed = "https://patentscope.wipo.int/search/rss"
+        self.epo_ops_url = "https://ops.epo.org/3.2"
+        self.api_key = USPTO_API_KEY
+        # Note: The actual collect_uspto_patents method would need to be updated
+        # to use self.api_key if the USPTO API requires it in headers/params.
+        # Currently, it does not seem to use an API key in its request params.
 
     def collect_uspto_patents(self, start_date, end_date, tech_category):
         """
@@ -95,8 +100,8 @@ class PatentDataCollector:
         return valid_patents
 
 class FundingDataCollector:
-    def __init__(self, crunchbase_key): # Add keys/auth for AngelList, SEC Edgar etc.
-        self.crunchbase_key = crunchbase_key
+    def __init__(self): # Removed crunchbase_key parameter
+        self.crunchbase_key = CRUNCHBASE_API_KEY # Use imported key
         self.crunchbase_url = "https://api.crunchbase.com/api/v4"
         self.rate_limit_delay = 1.2  # seconds between requests
 
@@ -178,9 +183,9 @@ class FundingDataCollector:
 
 class ResearchDataCollector:
     def __init__(self):
-        self.arxiv_client = arxiv.Client(page_size=100, delay_seconds=3.0, num_retries=3)
+        self.arxiv_client = arxiv.Client(page_size=100, delay_seconds=3.0, num_retries=3) # arxiv import is at the top
         self.pubmed_base = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
-        self.pubmed_api_key = None
+        self.pubmed_api_key = PUBMED_API_KEY # Use imported key
 
     def collect_arxiv_papers(self, categories, days_back=30):
         """

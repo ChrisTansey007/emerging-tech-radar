@@ -10,3 +10,4 @@ joblib
 # scipy is imported via `from scipy import stats`
 scipy
 nltk
+python-dotenv

@@ -42,7 +42,7 @@ build/
 
 # Secrets or sensitive config - ensure these are not committed
 # Example:
-# .env
+.env
 # config/secrets.yml
 # *.key
 # Add specific secret files here if any are used and not managed by other means.
@@ -53,4 +53,4 @@ build/
 # Placeholder for ignoring specific local config if it were used:
 # local_config.py
 # local_settings.py
-# .env
+# For clarity, I'll ensure only one active .env line.

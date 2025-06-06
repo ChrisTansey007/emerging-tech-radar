@@ -1,4 +1,15 @@
 from datetime import datetime, timedelta
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file if it exists
+load_dotenv()
+
+# API Keys loaded from environment variables with defaults
+USPTO_API_KEY = os.getenv("USPTO_API_KEY", "USPTO_DEFAULT_PLACEHOLDER")
+CRUNCHBASE_API_KEY = os.getenv("CRUNCHBASE_API_KEY", "CRUNCHBASE_DEFAULT_PLACEHOLDER")
+PUBMED_API_KEY = os.getenv("PUBMED_API_KEY", "PUBMED_DEFAULT_PLACEHOLDER")
+
 
 patent_config = {
     'collection_frequency': 'daily',
