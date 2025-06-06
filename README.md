@@ -82,7 +82,7 @@ A high-level visual overview of this module's workflow, from data collection thr
     *   Conceptual modeling of innovation trends (details within the module).
 *   **Data Management:**
     *   API keys are managed using a `.env` file at the project root (see `innovation_system/README.md` for setup). Currently uses placeholders for most keys.
-    *   Collected/generated data (arXiv papers, mock patent/funding data) is persisted to Parquet files in the `innovation_system/data/raw/` directory to optimize subsequent runs.
+    *   Collected/generated data (arXiv papers, mock patent/funding data) is persisted to Parquet files in the `innovation_system/data/raw/` directory to optimize subsequent runs. Detailed information about these data schemas is available in the [Data Schemas Document](./docs/data_schema.md).
 *   **Execution & Control:**
     *   The system is run via a Command-Line Interface (CLI): `python innovation_system/main/run.py`.
     *   Key runtime arguments include specifying target `--sectors`, date ranges (`--start-date`, `--end-date`), prediction `--horizons`, and forcing data re-collection with `--force-collect`.
