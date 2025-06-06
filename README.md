@@ -71,6 +71,8 @@ The Emerging Tech Radar aims to identify and analyze technologies that are on th
 
 The `Innovation Prediction System`, located in the `innovation_system/` directory, is the primary engine of the Emerging Tech Radar. It's designed to automate the collection, processing, and analysis of data from various sources (academic research, patents, funding news) to identify and forecast trends in technological innovation. This system aims to provide data-driven insights into what technologies are emerging, their momentum, and potential areas of impact.
 
+A high-level visual overview of this module's workflow, from data collection through to prediction and monitoring, is available in the [System Workflow Diagram](./docs/flow.md).
+
 ### Key Features & Current Status:
 
 *   **Status:** Actively under development.
