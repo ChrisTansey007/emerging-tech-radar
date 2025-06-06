@@ -62,13 +62,19 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Define Parquet file paths
-    DATA_DIR = "data/raw"
+    DATA_DIR = "data/raw" # For feature data
+    MONITORING_DB_DIR = "data" # For monitoring database
+
     PATENTS_FILE = os.path.join(DATA_DIR, "patents.parquet")
     FUNDING_FILE = os.path.join(DATA_DIR, "funding.parquet")
     RESEARCH_FILE = os.path.join(DATA_DIR, "research_papers.parquet")
 
-    # Ensure data directory exists (important for saving)
+    # Ensure data directories exist
     os.makedirs(DATA_DIR, exist_ok=True)
+    if MONITORING_DB_DIR and not os.path.exists(MONITORING_DB_DIR):
+        os.makedirs(MONITORING_DB_DIR, exist_ok=True)
+
+    MONITORING_DB_FILE = os.path.join(MONITORING_DB_DIR, "monitoring.sqlite")
 
     # Process parsed arguments
     cli_sectors = [s.strip() for s in args.sectors.split(',')]
@@ -544,9 +550,29 @@ if __name__ == '__main__':
     # The monitoring and uncertainty sections would also need X_test_demo with new feature names.
     print("\n--- Monitoring & Maintenance (Conceptual) ---") # Moved this print to be after summary
     # Ensure trained_models exists and is not empty. If it was skipped, monitor can't use it.
+    # Initialize monitor to an empty dict or None if no models, so it can still be used for pipeline status
+    monitor = None
     if 'trained_models' in locals() and trained_models and any(v for v in trained_models.values()):
-        monitor = SystemMonitor(trained_models, model_config, monitoring_config)
+        monitor = SystemMonitor(trained_models, model_config, monitoring_config, db_path=MONITORING_DB_FILE)
+    else:
+        # Instantiate SystemMonitor even if no models, for pipeline status updates.
+        # Pass an empty dict for trained_models if none exist.
+        monitor = SystemMonitor({}, model_config, monitoring_config, db_path=MONITORING_DB_FILE)
+        print("No trained models available for full monitoring setup, but pipeline status will be tracked.")
 
+    if monitor: # Ensure monitor was successfully instantiated
+        status_detail_start = (
+            f"Run started. Sectors: {cli_sectors}, "
+            f"Start: {args.start_date}, End: {args.end_date}, "
+            f"Horizons: {cli_horizons}, ForceCollect: {args.force_collect}"
+        )
+        monitor.update_pipeline_status(
+            "main_run",
+            "STARTED",
+            status_detail_start
+        )
+
+    if 'trained_models' in locals() and trained_models and any(v for v in trained_models.values()) and monitor: # Check monitor again for safety
         # Baseline for data drift: Use a subset of X_train_demo (numeric features only, no sector label)
         # This requires features to be in a format that monitor.set_data_drift_baseline expects.
         # If `monitoring_config['data_drift_thresholds']` uses specific names (e.g. 'filing_rate_3m_patent'),
@@ -621,5 +647,8 @@ if __name__ == '__main__':
         else: print(f"\nNo sector_forecasts available for {example_sector_for_uncertainty} for uncertainty demo.")
     else:
         print("\nNo CLI sectors provided, skipping uncertainty handling demo.")
+
+    if monitor: # Update status at the end
+        monitor.update_pipeline_status("main_run", "COMPLETED", "Run finished successfully.")
 
     print("\n--- System Run Finished (Conceptual) ---")
