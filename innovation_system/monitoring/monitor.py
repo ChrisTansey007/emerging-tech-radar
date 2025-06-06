@@ -3,12 +3,14 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from sklearn.metrics import mean_absolute_error
+import sqlite3
+import os
 # from ..config.settings import model_config, monitoring_config # Example imports
 
 class SystemMonitor:
-    def __init__(self, trained_models_dict, model_cfg, monitor_cfg, db_connection_mock=None): # Added configs
+    def __init__(self, trained_models_dict, model_cfg, monitor_cfg, db_path="data/monitoring.sqlite"): # New db_path
         self.trained_models_dict = trained_models_dict
-        self.db_connection = db_connection_mock
+        # self.db_connection = db_connection_mock # Removed
         self.data_drift_baselines = {}
         self.data_drift_thresholds = {
             'patent_filing_rate_3m_patent': 0.20, 'funding_amount_velocity_3m_usd_funding': 0.25,
@@ -19,14 +21,72 @@ class SystemMonitor:
         self.model_performance_thresholds = self.model_config['performance_threshold']
         self.logger = logging.getLogger(__name__)
 
+        self.db_path = db_path
+        db_dir = os.path.dirname(self.db_path)
+        if db_dir and not os.path.exists(db_dir):
+            os.makedirs(db_dir, exist_ok=True)
+            self.logger.info(f"Created directory for monitoring database: {db_dir}")
+
+        self.conn = sqlite3.connect(self.db_path)
+        self._initialize_db()
+
+    def _initialize_db(self):
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS pipeline_status (
+                    pipeline_name TEXT PRIMARY KEY,
+                    last_run_timestamp TEXT,
+                    status TEXT,
+                    details TEXT
+                )
+            ''')
+            self.conn.commit()
+            self.logger.info(f"Database initialized/ensured table 'pipeline_status' exists at {self.db_path}")
+        except sqlite3.Error as e:
+            self.logger.error(f"Error initializing database table: {e}")
+            # Depending on criticality, might raise or exit
+            # For now, log and continue; methods using DB should handle conn absence or errors.
+
     def _get_pipeline_status_from_db(self, pipeline_name):
-        if self.db_connection:
-            # Mock query
-            if pipeline_name in ["patents_pipeline", "research_pipeline"]:
-                return {'last_success_run': datetime.now() - timedelta(hours=12), 'status': 'SUCCESS'}
-            elif pipeline_name == "funding_pipeline":
-                 return {'last_success_run': datetime.now() - timedelta(days=3), 'status': 'SUCCESS'}
-        return {'last_success_run': datetime.now() - timedelta(days=10), 'status': 'UNKNOWN'}
+        # if self.db_connection: # Old mock logic
+        # Replaced with actual DB query if self.conn is available
+        if self.conn:
+            try:
+                cursor = self.conn.cursor()
+                cursor.execute("SELECT last_run_timestamp, status, details FROM pipeline_status WHERE pipeline_name=?", (pipeline_name,))
+                row = cursor.fetchone()
+                if row:
+                    last_run_ts_str, status, details = row
+                    # last_run_dt = datetime.fromisoformat(last_run_ts_str) if last_run_ts_str else None # Parsed in consumer
+                    return {'last_run_timestamp': last_run_ts_str, 'status': status, 'details': details}
+                else:
+                    self.logger.info(f"No status found in DB for pipeline: {pipeline_name}")
+                    return {'last_run_timestamp': None, 'status': 'NOT_FOUND', 'details': 'Pipeline status not found in DB.'}
+            except sqlite3.Error as e:
+                self.logger.error(f"Error querying pipeline status for {pipeline_name}: {e}")
+                return {'last_run_timestamp': None, 'status': 'DB_ERROR', 'details': str(e)}
+
+        self.logger.warning("No database connection available for _get_pipeline_status_from_db.")
+        return {'last_run_timestamp': None, 'status': 'NO_DB_CONN', 'details': 'Database connection not available.'}
+
+    def update_pipeline_status(self, pipeline_name, status, details=""):
+        timestamp = datetime.now().isoformat()
+        if self.conn:
+            try:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                    INSERT OR REPLACE INTO pipeline_status
+                    (pipeline_name, last_run_timestamp, status, details)
+                    VALUES (?, ?, ?, ?)
+                ''', (pipeline_name, timestamp, status, details))
+                self.conn.commit()
+                self.logger.info(f"Updated status for pipeline '{pipeline_name}' to '{status}'.")
+            except sqlite3.Error as e:
+                self.logger.error(f"Error updating pipeline status for '{pipeline_name}': {e}")
+        else:
+            self.logger.error(f"Cannot update pipeline status for '{pipeline_name}': No database connection.")
+
 
     def check_data_pipeline_health(self):
         self.logger.info("Starting data pipeline health check...")
@@ -36,14 +96,22 @@ class SystemMonitor:
             "research_pipeline": {'max_delay_days': 2, 'error_if_not_success': True},
         }
         all_healthy = True
-        for pipeline_name, config in pipelines_to_check.items():
+        for pipeline_name, config_params in pipelines_to_check.items(): # Renamed config to config_params to avoid clash
             status_info = self._get_pipeline_status_from_db(pipeline_name)
-            last_run = status_info.get('last_success_run')
+            last_run_str = status_info.get('last_run_timestamp')
             current_status = status_info.get('status')
-            if not last_run or (datetime.now() - last_run > timedelta(days=config['max_delay_days'])):
-                self.logger.error(f"Pipeline '{pipeline_name}' delayed. Last run: {last_run}.")
+
+            last_run_dt = None
+            if last_run_str:
+                try:
+                    last_run_dt = datetime.fromisoformat(last_run_str)
+                except ValueError:
+                    self.logger.warning(f"Could not parse timestamp '{last_run_str}' for pipeline '{pipeline_name}'.")
+
+            if not last_run_dt or (datetime.now() - last_run_dt > timedelta(days=config_params['max_delay_days'])):
+                self.logger.error(f"Pipeline '{pipeline_name}' delayed. Last run: {last_run_dt}.")
                 all_healthy = False
-            if config['error_if_not_success'] and current_status != 'SUCCESS':
+            if config_params['error_if_not_success'] and current_status != 'SUCCESS': # Assuming 'SUCCESS' is the target status
                 self.logger.error(f"Pipeline '{pipeline_name}' status '{current_status}'. Expected SUCCESS.")
                 all_healthy = False
         if all_healthy: self.logger.info("Data pipelines healthy.")

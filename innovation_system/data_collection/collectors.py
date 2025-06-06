@@ -8,12 +8,18 @@ import arxiv
 # feedparser was imported but not used directly in PatentDataCollector or ResearchDataCollector,
 # but keeping it here if it's intended for WIPO/EPO extensions.
 import feedparser
+import os
+from innovation_system.config.settings import USPTO_API_KEY, CRUNCHBASE_API_KEY, PUBMED_API_KEY
 
 class PatentDataCollector:
     def __init__(self):
         self.uspto_base_url = "https://developer.uspto.gov/ibd-api/v1"
-        self.wipo_rss_feed = "https://patentscope.wipo.int/search/rss" # Example, actual usage would need parsing logic
-        self.epo_ops_url = "https://ops.epo.org/3.2" # Example, actual usage would need OAuth and specific client
+        self.wipo_rss_feed = "https://patentscope.wipo.int/search/rss"
+        self.epo_ops_url = "https://ops.epo.org/3.2"
+        self.api_key = USPTO_API_KEY
+        # Note: The actual collect_uspto_patents method would need to be updated
+        # to use self.api_key if the USPTO API requires it in headers/params.
+        # Currently, it does not seem to use an API key in its request params.
 
     def collect_uspto_patents(self, start_date, end_date, tech_category):
         """
@@ -74,11 +80,28 @@ class PatentDataCollector:
                  print(f"Missing critical data for patent: {patent.get('patent_id')}")
 
         print(f"Validated {len(valid_patents)}/{len(patents)} patents")
+
+        # Save to Parquet
+        if valid_patents:
+            df = pd.DataFrame(valid_patents)
+            output_dir = "data/raw"
+            os.makedirs(output_dir, exist_ok=True)
+            filepath = os.path.join(output_dir, "patents.parquet")
+            if not df.empty:
+                try:
+                    df.to_parquet(filepath, index=False)
+                    print(f"Saved patent data to {filepath}")
+                except Exception as e:
+                    print(f"Error saving patent data to Parquet: {e}")
+            elif os.path.exists(filepath): # If df is empty but file exists, implies current collection is empty
+                print(f"No new patent data to save to {filepath}. Existing file unchanged or will be overwritten if it was from a different empty run.")
+
+
         return valid_patents
 
 class FundingDataCollector:
-    def __init__(self, crunchbase_key): # Add keys/auth for AngelList, SEC Edgar etc.
-        self.crunchbase_key = crunchbase_key
+    def __init__(self): # Removed crunchbase_key parameter
+        self.crunchbase_key = CRUNCHBASE_API_KEY # Use imported key
         self.crunchbase_url = "https://api.crunchbase.com/api/v4"
         self.rate_limit_delay = 1.2  # seconds between requests
 
@@ -98,6 +121,22 @@ class FundingDataCollector:
             except Exception as e:
                 print(f"Error collecting '{category_uuid_or_name}' funding: {e}")
                 continue
+
+        # Save to Parquet
+        if all_rounds:
+            df = pd.DataFrame(all_rounds)
+            output_dir = "data/raw"
+            os.makedirs(output_dir, exist_ok=True)
+            filepath = os.path.join(output_dir, "funding.parquet")
+            if not df.empty:
+                try:
+                    df.to_parquet(filepath, index=False)
+                    print(f"Saved funding data to {filepath}")
+                except Exception as e:
+                    print(f"Error saving funding data to Parquet: {e}")
+            elif os.path.exists(filepath):
+                 print(f"No new funding data to save to {filepath}. Existing file unchanged or will be overwritten if it was from a different empty run.")
+
         return all_rounds
 
     def _fetch_category_funding(self, category_identifier, announced_on_after):
@@ -144,9 +183,9 @@ class FundingDataCollector:
 
 class ResearchDataCollector:
     def __init__(self):
-        self.arxiv_client = arxiv.Client(page_size=100, delay_seconds=3.0, num_retries=3)
+        self.arxiv_client = arxiv.Client(page_size=100, delay_seconds=3.0, num_retries=3) # arxiv import is at the top
         self.pubmed_base = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
-        self.pubmed_api_key = None
+        self.pubmed_api_key = PUBMED_API_KEY # Use imported key
 
     def collect_arxiv_papers(self, categories, days_back=30):
         """
@@ -167,7 +206,7 @@ class ResearchDataCollector:
                         papers.append({
                             'paper_id': paper.entry_id, 'title': paper.title,
                             'authors': [str(author) for author in paper.authors],
-                            'abstract': paper.summary.replace('\n', ' '),
+                            'abstract': paper.summary.replace('\n', ' ') if paper.summary else "",
                             'categories': paper.categories, 'published_date': paper.published.isoformat(),
                             'pdf_url': paper.pdf_url, 'citation_count': 0, 'source': 'arXiv'
                         })

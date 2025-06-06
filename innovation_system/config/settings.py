@@ -1,4 +1,15 @@
 from datetime import datetime, timedelta
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file if it exists
+load_dotenv()
+
+# API Keys loaded from environment variables with defaults
+USPTO_API_KEY = os.getenv("USPTO_API_KEY", "USPTO_DEFAULT_PLACEHOLDER")
+CRUNCHBASE_API_KEY = os.getenv("CRUNCHBASE_API_KEY", "CRUNCHBASE_DEFAULT_PLACEHOLDER")
+PUBMED_API_KEY = os.getenv("PUBMED_API_KEY", "PUBMED_DEFAULT_PLACEHOLDER")
+
 
 patent_config = {
     'collection_frequency': 'daily',
@@ -49,7 +60,15 @@ feature_config = {
         'collaboration': 0.20, 'novelty': 0.30
     },
     'normalization_method': 'z_score',
-    'missing_value_strategy': 'median_imputation'
+    'missing_value_strategy': 'median_imputation',
+    'emerging_tech_keywords': [
+        'artificial intelligence', 'machine learning', 'deep learning',
+        'quantum computing', 'quantum supremacy',
+        'blockchain', 'cryptocurrency', 'smart contract', 'nft',
+        'biotechnology', 'gene editing', 'crispr', 'synthetic biology',
+        'renewable energy', 'solar power', 'wind power', 'battery storage', ' sostenible', ' जलवायु',
+        'nanotechnology', 'carbon nanotubes'
+    ],
 }
 
 model_config = {
@@ -74,8 +93,32 @@ prediction_config = {
         'keyword_novelty_score': 0.1
     },
     'investment_ranking_criteria': {
-        'growth_potential': 0.4, 'confidence_score': 0.3,
-        'market_size': 0.2, 'risk_adjusted_return': 0.1
+        'growth_potential': 0.4,
+        'confidence_score': 0.3,
+        'market_size': 0.2,
+        'risk_adjusted_return': 0.1,
+        # New additions:
+        'high_growth_threshold': 0.10,
+        'low_growth_threshold': 0.01,
+        'large_market_threshold_usd': 500000000,
+        'min_market_size_threshold_usd': 100000000,
+        'action_invest_score_thresh': 0.5, # Threshold for "Consider Investment" action score
+        'action_invest_growth_thresh': 0.05, # Min growth for "Consider Investment"
+        'action_monitor_score_thresh': 0.3, # Threshold for "Monitor Closely" action score
+    },
+    'emergence_analysis_thresholds': {
+        'score_high_confidence': 0.70,
+        'score_medium_confidence': 0.40,
+        'timeline_fast_threshold': 0.70,
+        'timeline_medium_threshold': 0.40
+    },
+    'emergence_risk_factors_map': {
+        'low_funding_signal': "Funding/Commercialization Lag",
+        'low_research_signal': "Weakening Research Base",
+        'low_patent_signal': "Slowing IP Generation",
+        'highly_concentrated_activity': "Dependence on Few Players",
+        'nascent_market': "Market Adoption Uncertainty",
+        'default_risk': "General market and execution risks"
     }
 }
 
