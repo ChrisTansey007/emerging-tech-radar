@@ -59,7 +59,7 @@ jobs:
       - name: Test with Pytest and Generate Coverage
         run: |
           coverage run -m pytest innovation_system/tests/
-          coverage report -m --fail-under=60
+          coverage report -m --fail-under=80
           coverage html
 
       - name: Upload Coverage Report
